@@ -1,0 +1,12 @@
+# Ignorar virtual env
+venv/
+
+# Ignorar subcarpeta limpia accidental
+clean_repo/
+
+# Ignorar archivos privados
+.env
+
+# Ignorar cachés de Python
+__pycache__/
+*.pyc
