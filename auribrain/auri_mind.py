@@ -8,11 +8,6 @@ from auribrain.response_engine import ResponseEngine
 class AuriMind:
     """
     Núcleo de inteligencia de Auri.
-    - Detecta intención
-    - Observa contexto (clima, hora, carga mental)
-    - Analiza emociones del usuario
-    - Usa la personalidad elegida (Jarvis, Classic, Friendly…)
-    - Produce reasoning → respuesta final humana
     """
 
     def __init__(self):
@@ -21,12 +16,13 @@ class AuriMind:
         self.intent = IntentEngine()
         self.memory = MemoryEngine()
         self.context = ContextEngine()
+        self.context.attach_memory(self.memory)
         self.personality = PersonalityEngine()
         self.response = ResponseEngine()
 
-    # -------------------------------------------------------------------
-    # 🧠 THINK — produce razonamiento + respuesta Jarvis
-    # -------------------------------------------------------------------
+    # -------------------------------------------------------------
+    # THINK — pipeline moderno compatible con la API nueva
+    # -------------------------------------------------------------
     def think(self, user_msg: str):
         if not user_msg.strip():
             return {
@@ -35,44 +31,43 @@ class AuriMind:
                 "final": "Perdón, no logré escucharte. ¿Podrías repetirlo?"
             }
 
-        # 1) Registrar interacción en memoria
+        # 1) memoria
         self.memory.add_interaction(user_msg)
 
-        # 2) Detectar intención híbrida (reglas + LLM)
+        # 2) intención
         intent = self.intent.detect(user_msg)
 
-        # 3) Obtener contexto del día
+        # 3) contexto
         ctx = self.context.get_daily_context()
 
-        # 4) Analizar personalidad activa
+        # 4) personalidad final
         style = self.personality.build_final_style(
             context=ctx,
             emotion=self.memory.get_emotion()
         )
 
-        # 5) Prompt Jarvis híbrido
+        # 5) system prompt moderno
         system_prompt = (
             f"Eres Auri, un asistente personal avanzado con estilo '{self.personality.current}'. "
             f"Tu tono es: {style['tone']}. "
             f"Rasgos clave: {', '.join(style['traits'])}. "
             f"Hablas con elegancia, precisión y calidez humana. "
-            f"Analiza contexto, emociones y carga del usuario antes de responder. "
             f"No menciones que eres una IA. "
             f"Tu objetivo es ser un verdadero asistente al estilo Jarvis."
         )
 
-        # 6) Llamada a LLM para reasoning
-        raw = self.client.chat.completions.create(
+        # 6) LLM moderno — API responses.create()
+        resp = self.client.responses.create(
             model="gpt-4o-mini",
-            messages=[
+            input=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_msg},
             ]
         )
 
-        raw_answer = raw.choices[0].message["content"]
+        raw_answer = resp.output_text  # <- forma correcta en API moderna
 
-        # 7) Procesar respuesta final
+        # 7) procesado final
         final_answer = self.response.build(
             intent=intent,
             style=style,

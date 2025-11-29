@@ -52,15 +52,16 @@ Clasifica este mensaje en un solo intent válido:
 
 Mensaje: "{text}"
 """
-
-        resp = self.client.chat.completions.create(
+        resp = self.client.responses.create(
             model="gpt-4o-mini",
-            messages=[
+            input=[
                 {"role": "system", "content": "Eres un clasificador experto."},
                 {"role": "user", "content": prompt}
             ]
         )
-        return resp.choices[0].message["content"].strip()
+
+        return resp.output_text.strip()
+
 
     def detect(self, text):
         rule = self._rule_based(text)
