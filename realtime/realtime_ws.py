@@ -1,16 +1,23 @@
 import asyncio
 import json
+from io import BytesIO
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from openai import AsyncOpenAI
 
 router = APIRouter()
 client = AsyncOpenAI()
 
+# -----------------------
+# CONFIG
+# -----------------------
 TTS_MODEL = "gpt-4o-mini-tts"
 VOICE_ID = "aurivoice"
 SAMPLE_RATE = 16000
 
 
+# -----------------------
+# SESSION CLASS
+# -----------------------
 class RealtimeSession:
     def __init__(self):
         self.buffer = bytearray()
@@ -22,6 +29,9 @@ class RealtimeSession:
         self.buffer = bytearray()
 
 
+# -----------------------
+# MAIN WS ROUTE
+# -----------------------
 @router.websocket("/realtime")
 async def realtime_socket(ws: WebSocket):
     await ws.accept()
@@ -33,12 +43,12 @@ async def realtime_socket(ws: WebSocket):
         while True:
             data = await ws.receive()
 
-            # 🔊 AUDIO ENTRANTE
+            # 🔊 AUDIO FROM FLUTTER
             if isinstance(data, dict) and "bytes" in data:
                 session.append(data["bytes"])
                 continue
 
-            # 📄 JSON ENTRANTE
+            # 📄 JSON FROM FLUTTER
             if "text" in data:
                 msg = json.loads(data["text"])
                 t = msg.get("type")
@@ -60,17 +70,19 @@ async def realtime_socket(ws: WebSocket):
                     await ws.send_json({"type": "thinking", "state": False})
 
                 elif t == "text_command":
-                    # Texto manual desde Flutter
                     text = msg.get("text", "")
                     await send_tts_reply(ws, text)
 
                 elif t == "ping":
-                    pass
+                    pass  # heartbeat for Flutter
 
     except WebSocketDisconnect:
         print("❌ Cliente desconectado")
 
 
+# -----------------------
+# PROCESS STT + TTS
+# -----------------------
 async def process_stt_tts(ws: WebSocket, session: RealtimeSession):
 
     if len(session.buffer) == 0:
@@ -78,13 +90,17 @@ async def process_stt_tts(ws: WebSocket, session: RealtimeSession):
         await ws.send_json({"type": "thinking", "state": False})
         return
 
-    # ---------------------
-    # STT
-    # ---------------------
+    # -----------------------
+    # STT (Whisper)
+    # -----------------------
     print("🎙 Whisper STT…")
+
+    audio_file = BytesIO(session.buffer)
+    audio_file.name = "audio.wav"  # HTTPX lo requiere
+
     stt = await client.audio.transcriptions.create(
         model="gpt-4o-mini-tts",
-        file=("audio.wav", session.buffer, "audio/wav")
+        file=audio_file,
     )
 
     text = stt.text.strip()
@@ -92,19 +108,24 @@ async def process_stt_tts(ws: WebSocket, session: RealtimeSession):
 
     await ws.send_json({"type": "stt_final", "text": text})
 
-    # ---------------------
-    # TTS
-    # ---------------------
+    # -----------------------
+    # TTS (responder)
+    # -----------------------
     await send_tts_reply(ws, f"Entendido. Dijiste: {text}")
 
 
+# -----------------------
+# TTS SENDER
+# -----------------------
 async def send_tts_reply(ws: WebSocket, text: str):
     print("🔊 TTS generando:", text)
 
+    # Mensajes texto tipo Alexa/Siri
     await ws.send_json({"type": "reply_partial", "text": text[:15]})
     await ws.send_json({"type": "reply_partial", "text": text[:28]})
     await ws.send_json({"type": "reply_final", "text": text})
 
+    # Audio por streaming
     tts_stream = await client.audio.speech.with_streaming_response.create(
         model=TTS_MODEL,
         voice=VOICE_ID,
