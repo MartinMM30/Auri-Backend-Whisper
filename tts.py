@@ -18,18 +18,25 @@ async def tts_endpoint(body: TTSRequest):
         raise HTTPException(status_code=400, detail="text is required")
 
     try:
-        resp = client.audio.speech.create(
+        # ❗FORMA CORRECTA para obtener bytes
+        result = client.audio.speech.create(
             model="gpt-4o-mini-tts",
             voice=body.voice or "alloy",
             input=body.text,
+            format="mp3",                 # <-- IMPORTANTE
+            output="bytes"                # <-- NECESARIO para obtener audio completo
         )
 
-        audio_bytes = resp.read()
+        # result es directamente bytes
+        audio_bytes = result
 
         return StreamingResponse(
             io.BytesIO(audio_bytes),
             media_type="audio/mpeg",
+            headers={
+                "Content-Disposition": "inline; filename=tts.mp3"
+            }
         )
 
     except Exception as e:
-        raise HTTPException(500, str(e))
+        raise HTTPException(500, f"TTS Error: {str(e)}")

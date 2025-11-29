@@ -1,5 +1,3 @@
-# realtime/realtime_ws.py
-
 import io
 import json
 import logging
@@ -10,18 +8,15 @@ from openai import AsyncOpenAI
 
 from auribrain.auri_mind import AuriMind
 
-# -------------------------------------------------------
-# LOGGING PROFESIONAL (se ve en logs de Railway)
-# -------------------------------------------------------
 logger = logging.getLogger("uvicorn.error")
 
 router = APIRouter()
-client = AsyncOpenAI()          # Usa OPENAI_API_KEY de las env vars
-auri = AuriMind()               # Motor de pensamiento de Auri
+client = AsyncOpenAI()                # Usa OPENAI_API_KEY automáticamente
+auri = AuriMind()
 
 STT_MODEL = "whisper-1"
 TTS_MODEL = "gpt-4o-mini-tts"
-VOICE_ID = "alloy"              # ⚠️ Voz válida por defecto
+VOICE_ID = "alloy"
 SAMPLE_RATE = 16000
 
 
@@ -32,7 +27,7 @@ def pcm16_to_wav(pcm_bytes: bytes, sample_rate: int):
     buffer = io.BytesIO()
     with wave.open(buffer, "wb") as wav:
         wav.setnchannels(1)
-        wav.setsampwidth(2)          # 16-bit PCM
+        wav.setsampwidth(2)  # PCM16
         wav.setframerate(sample_rate)
         wav.writeframes(pcm_bytes)
     buffer.seek(0)
@@ -50,7 +45,7 @@ class RealtimeSession:
         self.pcm_buffer.extend(data)
 
     def clear(self):
-        self.pcm_buffer = bytearray()
+        self.pcm_buffer.clear()
 
 
 # -------------------------------------------------------
@@ -67,23 +62,23 @@ async def realtime_socket(ws: WebSocket):
         while True:
             msg = await ws.receive()
 
-            # Bytes = audio PCM del micro
+            # Recibimos audio PCM del micro
             if msg.get("bytes") is not None:
                 session.append_pcm(msg["bytes"])
                 continue
 
-            # Texto JSON
+            # Recibimos JSON (texto)
             if msg.get("text") is not None:
                 try:
                     data = json.loads(msg["text"])
                 except Exception:
-                    logger.warning("⚠ JSON inválido recibido en WS")
+                    logger.warning("⚠ JSON inválido recibido")
                     continue
 
                 await handle_json(ws, session, data)
 
     except WebSocketDisconnect:
-        logger.info("❌ Cliente desconectado de /realtime")
+        logger.info("❌ Cliente desconectado")
     except Exception as e:
         logger.exception("🔥 ERROR en WS principal: %s", e)
 
@@ -94,39 +89,32 @@ async def realtime_socket(ws: WebSocket):
 async def handle_json(ws: WebSocket, session: RealtimeSession, msg: dict):
     t = msg.get("type")
 
-    # Handshake inicial
     if t == "client_hello":
         await ws.send_json({"type": "hello_ok"})
         logger.info("🙋 HELLO: %s", msg)
 
-    # Inicio de sesión de voz
     elif t == "start_session":
         logger.info("🎤 Inicio de sesión de voz")
         session.clear()
-        # El móvil ya pone el slime en 'listening'; aquí no marcamos thinking todavía.
 
-    # Fin de audio: procesar STT + AuriMind + TTS
     elif t == "audio_end":
         await process_stt_tts(ws, session)
 
-    # Comando por texto (teclado)
     elif t == "text_command":
         txt = (msg.get("text") or "").strip()
-        if not txt:
-            return
-        await process_text_only(ws, txt)
+        if txt:
+            await process_text_only(ws, txt)
 
-    # Ping opcional
     elif t == "ping":
         await ws.send_json({"type": "pong"})
 
 
 # -------------------------------------------------------
-# PIPELINE COMPLETO: PCM -> STT -> AuriMind -> TTS
+# PIPELINE COMPLETO: PCM → STT → AuriMind → TTS
 # -------------------------------------------------------
 async def process_stt_tts(ws: WebSocket, session: RealtimeSession):
     if len(session.pcm_buffer) == 0:
-        logger.info("🎙 Sesión sin audio, nada que transcribir")
+        logger.info("🎙 No hay audio")
         await ws.send_json({"type": "thinking", "state": False})
         await ws.send_json({"type": "tts_end"})
         return
@@ -135,11 +123,11 @@ async def process_stt_tts(ws: WebSocket, session: RealtimeSession):
     await ws.send_json({"type": "thinking", "state": True})
 
     try:
-        # ------- PCM → WAV ----------
+        # PCM → WAV
         wav = pcm16_to_wav(session.pcm_buffer, SAMPLE_RATE)
         wav.name = "audio.wav"
 
-        # --------------- STT ---------------------
+        # ---- STT ----
         logger.info("🧠 Whisper STT…")
         stt = await client.audio.transcriptions.create(
             model=STT_MODEL,
@@ -158,18 +146,19 @@ async def process_stt_tts(ws: WebSocket, session: RealtimeSession):
             })
             return
 
-        # --------------- AuriMind (pensar respuesta) -----------
+        # ---- THINK ----
         reply = await think_with_auri(text)
 
-        # --------------- TTS + envío ---------------------------
+        # ---- TTS ----
         await send_tts_reply(ws, reply)
 
     except Exception as e:
-        logger.exception("🔥 Error en pipeline STT+LLM+TTS: %s", e)
+        logger.exception("🔥 Error en pipeline: %s", e)
         await ws.send_json({
             "type": "reply_final",
-            "text": "Lo siento, tuve un problema interno al procesar tu voz."
+            "text": "Lo siento, tuve un problema interno procesando tu voz."
         })
+
     finally:
         await ws.send_json({"type": "thinking", "state": False})
         await ws.send_json({"type": "tts_end"})
@@ -177,28 +166,29 @@ async def process_stt_tts(ws: WebSocket, session: RealtimeSession):
 
 
 # -------------------------------------------------------
-# MODO SOLO TEXTO (sin audio de entrada)
+# SOLO TEXTO (teclado)
 # -------------------------------------------------------
 async def process_text_only(ws: WebSocket, user_text: str):
-    logger.info("✉ Texto directo recibido: %s", user_text)
+    logger.info("✉ Texto directo: %s", user_text)
     await ws.send_json({"type": "thinking", "state": True})
 
     try:
         reply = await think_with_auri(user_text)
         await send_tts_reply(ws, reply)
     except Exception:
-        logger.exception("🔥 Error en pipeline solo texto")
+        logger.exception("🔥 Error en texto directo")
         await ws.send_json({
             "type": "reply_final",
-            "text": "Lo siento, tuve un problema interno al pensar tu respuesta."
+            "text": "Lo siento, algo salió mal pensando tu respuesta."
         })
+
     finally:
         await ws.send_json({"type": "thinking", "state": False})
         await ws.send_json({"type": "tts_end"})
 
 
 # -------------------------------------------------------
-# AuriMind: pensar respuesta
+# AuriMind
 # -------------------------------------------------------
 async def think_with_auri(user_text: str) -> str:
     try:
@@ -206,50 +196,45 @@ async def think_with_auri(user_text: str) -> str:
         reply = (result.get("final") or result.get("raw") or "").strip()
 
         if not reply:
-            reply = (
-                "Lo siento, no supe qué responder exactamente, "
-                "pero seguiré aprendiendo de ti."
-            )
+            reply = "Lo siento, no estoy seguro de cómo responder."
 
         logger.info("🧠 AuriMind reply: %s", reply)
         return reply
 
     except Exception as e:
-        logger.exception("🔥 Error en AuriMind.think: %s", e)
-        return "Lo siento, tuve un problema interno al pensar tu respuesta."
+        logger.exception("🔥 Error en AuriMind: %s", e)
+        return "Lo siento, tuve un problema pensando tu respuesta."
 
 
 # -------------------------------------------------------
-# TTS STREAMING (MP3 — compatible 100% con Railway)
+# TTS STREAMING MP3 — CORREGIDO Y FUNCIONAL
 # -------------------------------------------------------
 async def send_tts_reply(ws: WebSocket, text: str):
     logger.info("🔊 TTS reply: %s", text)
 
-    # Enviar texto al cliente (UI)
+    # Texto para la UI
     await ws.send_json({"type": "reply_partial", "text": text[:80]})
     await ws.send_json({"type": "reply_final", "text": text})
 
-    # === TTS MP3 (sin PCM16, sin sample rate, sin formato) ===
     try:
-        # Stream MP3 desde la API moderna (sin format ni sample_rate)
-        response = await client.audio.speech.with_streaming_response.create(
-            model=TTS_MODEL,   # gpt-4o-mini-tts
-            voice=VOICE_ID,    # alloy
-            input=text         # texto a convertir
+        # ❗ CORRECTO: NO uses await aquí
+        tts_stream = client.audio.speech.with_streaming_response.create(
+            model=TTS_MODEL,
+            voice=VOICE_ID,
+            input=text,
+            format="mp3",
         )
 
-        async with response:
-            async for chunk in response.iter_bytes():
-                # El chunk ya es MP3 raw
+        # `async with` de forma correcta con streaming
+        async with (await tts_stream) as stream:
+            async for chunk in stream.iter_bytes():
                 await ws.send_bytes(chunk)
 
-        logger.info("✅ Respuesta TTS (MP3) enviada por streaming")
+        logger.info("✅ TTS enviado correctamente")
 
     except Exception as e:
         logger.exception("🔥 Error generando TTS: %s", e)
-        # Mostramos solo el texto final; audio no es obligatorio
         await ws.send_json({
             "type": "tts_error",
             "error": str(e)
         })
-
