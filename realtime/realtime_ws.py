@@ -212,21 +212,21 @@ async def think_with_auri(user_text: str) -> str:
 async def send_tts_reply(ws: WebSocket, text: str):
     logger.info("🔊 TTS reply: %s", text)
 
-    # Texto para la UI
+    # Mandar texto a la UI inmediatamente
     await ws.send_json({"type": "reply_partial", "text": text[:80]})
     await ws.send_json({"type": "reply_final", "text": text})
 
     try:
-        # ❗ CORRECTO: NO uses await aquí
-        tts_stream = client.audio.speech.with_streaming_response.create(
+        # ❗ NO usar "format"
+        # El modelo siempre devuelve MP3 por defecto
+        tts_request = client.audio.speech.with_streaming_response.create(
             model=TTS_MODEL,
             voice=VOICE_ID,
             input=text,
-            format="mp3",
         )
 
-        # `async with` de forma correcta con streaming
-        async with (await tts_stream) as stream:
+        # Importante: await justo antes del "async with"
+        async with (await tts_request) as stream:
             async for chunk in stream.iter_bytes():
                 await ws.send_bytes(chunk)
 
