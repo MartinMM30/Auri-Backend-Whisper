@@ -1,175 +1,119 @@
+# realtime/realtime_ws.py
+
+import asyncio
 import json
-import io
-import wave
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from openai import OpenAI
-
-from core.emotional_engine import EmotionalEngine
-from core.jarvis_brain import JarvisBrain
-
-client = OpenAI()
+from openai import AsyncOpenAI
 
 router = APIRouter()
+client = AsyncOpenAI()
 
-# ------------------------------------------------------------
-# PCM → WAV
-# ------------------------------------------------------------
-def pcm_to_wav(pcm_bytes: bytes, sample_rate=16000):
-    buf = io.BytesIO()
-    with wave.open(buf, "wb") as wf:
-        wf.setnchannels(1)
-        wf.setsampwidth(2)
-        wf.setframerate(sample_rate)
-        wf.writeframes(pcm_bytes)
-    buf.seek(0)
-    return buf
+# -----------------------------------------
+# CONFIG
+# -----------------------------------------
+TTS_MODEL = "gpt-4o-mini-tts"     # modelo rápido
+VOICE_ID = "aurivoice"            # lo puedes cambiar
+SAMPLE_RATE = 16000               # Flutter envía/recibe esto
 
-# ------------------------------------------------------------
-# REALTIME ENDPOINT
-# ------------------------------------------------------------
+# -----------------------------------------
+# SESSION STATE (por conexión)
+# -----------------------------------------
+class RealtimeSession:
+    def __init__(self):
+        self.buffer = bytearray()
+        self.audio_chunks = []
+
+    def append_audio(self, data: bytes):
+        self.buffer.extend(data)
+
+    def clear(self):
+        self.buffer = bytearray()
+        self.audio_chunks = []
+
+
+# -----------------------------------------
+# ROUTER WS
+# -----------------------------------------
 @router.websocket("/realtime")
-async def realtime_endpoint(ws: WebSocket):
+async def realtime_socket(ws: WebSocket):
     await ws.accept()
     print("🔌 Cliente conectado")
 
-    brain = JarvisBrain()
-    audio_buffer = bytearray()
-    session_active = False
+    session = RealtimeSession()
 
     try:
         while True:
-            message = await ws.receive()
+            data = await ws.receive()
 
-            # ---------------- PCM BINARIO ----------------
-            if "bytes" in message and message["bytes"] is not None:
-                if not session_active:
-                    continue
-
-                chunk = message["bytes"]
-                audio_buffer.extend(chunk)
-
-                energy = min(1.0, max(0.05, len(chunk) / 4000.0))
-                await ws.send_json({"type": "lip_sync", "energy": energy})
+            # AUDIO (bytes)
+            if isinstance(data, dict) and "bytes" in data:
+                session.append_audio(data["bytes"])
                 continue
 
-            # ---------------- JSON ----------------
-            if "text" in message:
-                try:
-                    data = json.loads(message["text"])
-                except Exception:
-                    continue
+            # MENSAJE JSON
+            if "text" in data:
+                msg = json.loads(data["text"])
+                t = msg.get("type")
 
-                t = data.get("type")
+                if t == "client_hello":
+                    print("🙋 HELLO:", msg)
 
-                # ✔ Session Start
-                if t == "start_session":
-                    session_active = True
-                    audio_buffer.clear()
-                    await ws.send_json(EmotionalEngine.thinking(False))
-                    continue
+                elif t == "start_session":
+                    print("🎤 Start session")
+                    session.clear()
 
-                # ✔ Session Stop
-                if t == "stop_session":
-                    session_active = False
-                    audio_buffer.clear()
-                    await ws.send_json(EmotionalEngine.thinking(False))
-                    continue
+                elif t == "audio_end":
+                    print("🛑 Audio end, procesando…")
+                    await process_stt_tts(ws, session)
 
-                # ✔ Audio End → Whisper + GPT + TTS
-                if t == "audio_end":
-                    print("🎤 Procesando STT…")
-
-                    if not audio_buffer:
-                        await ws.send_json({"type": "stt_final", "text": ""})
-                        continue
-
-                    await ws.send_json(EmotionalEngine.thinking(True))
-
-                    try:
-                        wav = pcm_to_wav(bytes(audio_buffer))
-
-                        transcript = client.audio.transcriptions.create(
-                            model="whisper-1",
-                            file=("audio.wav", wav, "audio/wav"),
-                        )
-                        text = transcript.text.strip()
-
-                        await ws.send_json({"type": "stt_final", "text": text})
-                        await ws.send_json(
-                            EmotionalEngine.lip_sync_from_text(text)
-                        )
-
-                        # GPT → evento final
-                        event = await brain.process_text(text)
-                        final_text = event.get("text", "")
-
-                        await ws.send_json({"type": "reply_final", "text": final_text})
-
-                        # ---------------- TTS STREAM ----------------
-                        print("🎧 Generando TTS…")
-
-                        with client.audio.speech.with_streaming_response.create(
-                            model="gpt-4o-mini-tts",
-                            voice="aurivoice",
-                            format="pcm16",
-                            input=final_text,
-                        ) as stream:
-                            for chunk in stream.iter_bytes():
-                                await ws.send_bytes(chunk)
-
-                                # Lipsync basado en amplitud aproximada
-                                amp = min(1.0, max(0.1, len(chunk) / 1800.0))
-                                await ws.send_json({
-                                    "type": "lip_sync",
-                                    "energy": amp,
-                                })
-
-                    except Exception as e:
-                        print("❌ Error:", e)
-                        await ws.send_json({
-                            "type": "reply_final",
-                            "text": "Hubo un problema al procesar tu voz.",
-                        })
-
-                    finally:
-                        audio_buffer.clear()
-                        await ws.send_json(EmotionalEngine.thinking(False))
-
-                    continue
-
-                # ✔ Texto directo
-                if t == "text_command":
-                    txt = data.get("text", "")
-                    await ws.send_json(EmotionalEngine.thinking(True))
-
-                    event = await brain.process_text(txt)
-                    final_text = event.get("text", "")
-
-                    await ws.send_json({"type": "reply_final", "text": final_text})
-
-                    # TTS direct
-                    with client.audio.speech.with_streaming_response.create(
-                        model="gpt-4o-mini-tts",
-                        voice="aurivoice",
-                        format="pcm16",
-                        input=final_text,
-                    ) as stream:
-                        for chunk in stream.iter_bytes():
-                            await ws.send_bytes(chunk)
-
-                            amp = min(1.0, max(0.1, len(chunk) / 1600.0))
-                            await ws.send_json({
-                                "type": "lip_sync",
-                                "energy": amp,
-                            })
-
-                    await ws.send_json(EmotionalEngine.thinking(False))
-                    continue
-
-                # Debug / Heartbeat
-                if t == "ping":
-                    await ws.send_json({"type": "pong"})
-                    continue
+                elif t == "ping":
+                    pass  # heartbeat
 
     except WebSocketDisconnect:
-        print("🔌 Cliente desconectado")
+        print("❌ Cliente desconectado")
+    except Exception as e:
+        print("🔥 ERROR:", e)
+
+
+# -----------------------------------------
+# PROCESS: STT + TTS
+# -----------------------------------------
+async def process_stt_tts(ws: WebSocket, session: RealtimeSession):
+
+    if len(session.buffer) == 0:
+        print("⚠ No audio en buffer")
+        return
+
+    # ------------------------------------
+    # 1. STT → transcribir el audio
+    # ------------------------------------
+    print("🎙 Enviando a Whisper… (STT)")
+    stt = await client.audio.transcriptions.create(
+        model="gpt-4o-mini-tts",
+        file=("audio.wav", session.buffer, "audio/wav")
+    )
+
+    text = stt.text.strip()
+    print("📝 Texto reconocido:", text)
+
+    # enviar texto parcial/final
+    await ws.send_json({
+        "type": "stt_final",
+        "text": text
+    })
+
+    # ------------------------------------
+    # 2. TTS → generar audio de respuesta
+    # ------------------------------------
+    print("🔊 Enviando a TTS…")
+    tts = await client.audio.speech.with_streaming_response.create(
+        model=TTS_MODEL,
+        voice=VOICE_ID,
+        input=f"Entendido. Dijiste: {text}"
+    )
+
+    async for chunk in tts.iter_bytes():
+        await ws.send_bytes(chunk)
+
+    await ws.send_json({"type": "reply_final", "text": f"Entendido: {text}"})
+    print("🎉 TTS enviado en vivo")
