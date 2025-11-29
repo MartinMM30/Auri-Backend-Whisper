@@ -220,7 +220,7 @@ async def think_with_auri(user_text: str) -> str:
 
 
 # -------------------------------------------------------
-# TTS STREAMING
+# TTS STREAMING (MP3 — compatible 100% con Railway)
 # -------------------------------------------------------
 async def send_tts_reply(ws: WebSocket, text: str):
     logger.info("🔊 TTS reply: %s", text)
@@ -229,22 +229,27 @@ async def send_tts_reply(ws: WebSocket, text: str):
     await ws.send_json({"type": "reply_partial", "text": text[:80]})
     await ws.send_json({"type": "reply_final", "text": text})
 
-    # Intentar generar audio
+    # === TTS MP3 (sin PCM16, sin sample rate, sin formato) ===
     try:
+        # Stream MP3 desde la API moderna (sin format ni sample_rate)
         response = await client.audio.speech.with_streaming_response.create(
-            model=TTS_MODEL,
-            voice=VOICE_ID,
-            input=text,
-            format="pcm16",
-            sample_rate=SAMPLE_RATE,
+            model=TTS_MODEL,   # gpt-4o-mini-tts
+            voice=VOICE_ID,    # alloy
+            input=text         # texto a convertir
         )
 
         async with response:
             async for chunk in response.iter_bytes():
+                # El chunk ya es MP3 raw
                 await ws.send_bytes(chunk)
 
-        logger.info("✅ Respuesta TTS enviada por streaming")
+        logger.info("✅ Respuesta TTS (MP3) enviada por streaming")
 
     except Exception as e:
         logger.exception("🔥 Error generando TTS: %s", e)
-        # No relanzamos; ya hay texto en pantalla, simplemente no habrá audio.
+        # Mostramos solo el texto final; audio no es obligatorio
+        await ws.send_json({
+            "type": "tts_error",
+            "error": str(e)
+        })
+
