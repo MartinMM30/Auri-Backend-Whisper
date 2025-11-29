@@ -4,12 +4,14 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+# NUEVO WebSocket limpio
 from realtime.realtime_ws import router as realtime_router
-from router import router as rest_router  # AuriMind + TTS + STT REST
+
+# Rutas REST de AuriMind
+from router import router as rest_router
 
 app = FastAPI(title="Auri Realtime Backend")
 
-# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -18,13 +20,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 🔵 Ruta WebSocket REAL
+# WebSocket REAL (único)
 app.include_router(realtime_router)
 
-# 🔵 Rutas REST de AuriMind
+# Rutas REST
 app.include_router(rest_router)
 
 @app.get("/")
 async def root():
     return {"status": "ok", "service": "auri_realtime"}
-
