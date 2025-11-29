@@ -1,8 +1,11 @@
-# server.py
+# D:\proyectAuri\auri_backend_whisper\server.py
+
 import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
 from realtime.realtime_ws import router as realtime_router
+from router import router as rest_router  # AuriMind + TTS + STT REST
 
 app = FastAPI(title="Auri Realtime Backend")
 
@@ -15,17 +18,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# IMPORTANTE: incluir router con prefix vacío
-app.include_router(realtime_router, prefix="")
+# 🔵 Ruta WebSocket REAL
+app.include_router(realtime_router)
+
+# 🔵 Rutas REST de AuriMind
+app.include_router(rest_router)
 
 @app.get("/")
 async def root():
     return {"status": "ok", "service": "auri_realtime"}
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(
-        "server:app",
-        host="0.0.0.0",
-        port=int(os.environ.get("PORT", 8000)),
-    )
