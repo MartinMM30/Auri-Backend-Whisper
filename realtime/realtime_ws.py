@@ -136,14 +136,21 @@ async def send_tts_reply(ws: WebSocket, text: str):
     await ws.send_json({"type": "reply_partial", "text": text[:30]})
     await ws.send_json({"type": "reply_final", "text": text})
 
-    # Streaming de voz
-    stream = await client.audio.speech.with_streaming_response.create(
+    # ----------------------------------------------
+    # CORRECCIÓN PROFESIONAL DE STREAMING TTS OPENAI
+    # ----------------------------------------------
+    response = await client.audio.speech.with_streaming_response.create(
         model=TTS_MODEL,
         voice=VOICE_ID,
         input=text,
+        format="pcm16",
+        sample_rate=SAMPLE_RATE,
     )
 
-    async for chunk in stream.iter_bytes():
-        await ws.send_bytes(chunk)
+    async with response:
+        async for chunk in response.iter_bytes():
+            await ws.send_bytes(chunk)
 
+    # Fin
     await ws.send_json({"type": "thinking", "state": False})
+
