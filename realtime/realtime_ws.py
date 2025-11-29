@@ -1,7 +1,9 @@
 import asyncio
 import json
 from io import BytesIO
+
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi.websockets import WebSocketState
 from openai import AsyncOpenAI
 
 router = APIRouter()
@@ -10,14 +12,14 @@ client = AsyncOpenAI()
 # -----------------------
 # CONFIG
 # -----------------------
-STT_MODEL = "whisper-1"            # ← CORREGIDO
+STT_MODEL = "whisper-1"
 TTS_MODEL = "gpt-4o-mini-tts"
 VOICE_ID = "aurivoice"
 SAMPLE_RATE = 16000
 
 
 # -----------------------
-# SESSION CLASS
+# SESSION (PCM Buffer)
 # -----------------------
 class RealtimeSession:
     def __init__(self):
@@ -31,7 +33,7 @@ class RealtimeSession:
 
 
 # -----------------------
-# MAIN WS ROUTE
+# WEBSOCKET ROUTE
 # -----------------------
 @router.websocket("/realtime")
 async def realtime_socket(ws: WebSocket):
@@ -42,45 +44,58 @@ async def realtime_socket(ws: WebSocket):
 
     try:
         while True:
-            data = await ws.receive()
+            msg = await ws.receive()
 
-            # 🔊 AUDIO FROM FLUTTER
-            if isinstance(data, dict) and "bytes" in data:
-                session.append(data["bytes"])
+            # -----------------------
+            # BYTES (AUDIO DE FLUTTER)
+            # -----------------------
+            if msg["type"] == "websocket.receive" and msg.get("bytes") is not None:
+                session.append(msg["bytes"])
                 continue
 
-            # 📄 JSON FROM FLUTTER
-            if "text" in data:
-                msg = json.loads(data["text"])
-                t = msg.get("type")
-
-                if t == "client_hello":
-                    print("🙋 HELLO:", msg)
-
-                elif t == "start_session":
-                    print("🎤 start_session")
-                    session.clear()
-                    await ws.send_json({"type": "thinking", "state": True})
-
-                elif t == "audio_end":
-                    print("🛑 audio_end → procesando")
-                    await process_stt_tts(ws, session)
-
-                elif t == "stop_session":
-                    print("🔻 stop_session")
-                    await ws.send_json({"type": "thinking", "state": False})
-
-                elif t == "text_command":
-                    text = msg.get("text", "")
-                    await send_tts_reply(ws, text)
-
-                elif t == "ping":
-                    pass  # heartbeat
+            # -----------------------
+            # TEXTO JSON
+            # -----------------------
+            if msg.get("text") is not None:
+                data = json.loads(msg["text"])
+                await handle_json(ws, session, data)
 
     except WebSocketDisconnect:
         print("❌ Cliente desconectado")
+
     except Exception as e:
-        print("🔥 ERROR:", e)
+        print("🔥 ERROR severo:", e)
+
+
+# -----------------------
+# HANDLE JSON EVENTS
+# -----------------------
+async def handle_json(ws: WebSocket, session: RealtimeSession, msg: dict):
+    t = msg.get("type")
+
+    if t == "client_hello":
+        print("🙋 HELLO:", msg)
+
+    elif t == "start_session":
+        print("🎤 Iniciando sesión de voz")
+        session.clear()
+        await ws.send_json({"type": "thinking", "state": True})
+
+    elif t == "audio_end":
+        print("🛑 Audio terminado → procesando STT/TTS")
+        await process_stt_tts(ws, session)
+
+    elif t == "stop_session":
+        print("🔻 stop_session")
+        await ws.send_json({"type": "thinking", "state": False})
+
+    elif t == "text_command":
+        text = msg.get("text", "")
+        await send_tts_reply(ws, text)
+
+    elif t == "ping":
+        # Mantener vivo el WebSocket
+        pass
 
 
 # -----------------------
@@ -89,23 +104,22 @@ async def realtime_socket(ws: WebSocket):
 async def process_stt_tts(ws: WebSocket, session: RealtimeSession):
 
     if len(session.buffer) == 0:
-        print("⚠ No audio")
+        print("⚠ No audio enviado")
         await ws.send_json({"type": "thinking", "state": False})
         return
 
     # -----------------------
-    # STT (Whisper)
+    # STT WHISPER
     # -----------------------
     print("🎙 Whisper STT…")
 
-    audio_file = BytesIO(session.buffer)
-    audio_file.name = "audio.wav"  # ← HTTPX lo requiere
+    wav = BytesIO(session.buffer)
+    wav.name = "audio.wav"
 
     stt = await client.audio.transcriptions.create(
-        model="whisper-1",
-        file=audio_file,
-        )
-
+        model=STT_MODEL,
+        file=wav,
+    )
 
     text = stt.text.strip()
     print("📝 STT:", text)
@@ -113,30 +127,36 @@ async def process_stt_tts(ws: WebSocket, session: RealtimeSession):
     await ws.send_json({"type": "stt_final", "text": text})
 
     # -----------------------
-    # TTS (responder)
+    # TTS (RESPUESTA DE AURI)
     # -----------------------
-    await send_tts_reply(ws, f"Entendido. Dijiste: {text}")
+    await send_tts_reply(ws, f"Entendido Martín, dijiste: {text}")
 
 
 # -----------------------
-# TTS SENDER
+# TTS STREAMING
 # -----------------------
 async def send_tts_reply(ws: WebSocket, text: str):
-    print("🔊 TTS generando:", text)
+    print("🔊 Generando TTS:", text)
 
-    # Mensajes tipo Alexa/Siri
+    # Pre-respuestas tipo Siri/Alexa
     await ws.send_json({"type": "reply_partial", "text": text[:15]})
-    await ws.send_json({"type": "reply_partial", "text": text[:28]})
-    await ws.send_json({"type": "reply_final", "text": text})
+    await ws.send_json({"type": "reply_partial", "text": text[:30]})
+    await ws.send_json({"type": "reply_final",   "text": text})
 
-    # Stream de audio
-    tts_stream = await client.audio.speech.with_streaming_response.create(
-        model=TTS_MODEL,
-        voice=VOICE_ID,
-        input=text,
-    )
+    # Streaming de audio → Flutter
+    try:
+        stream = await client.audio.speech.with_streaming_response.create(
+            model=TTS_MODEL,
+            voice=VOICE_ID,
+            input=text,
+        )
 
-    async for chunk in tts_stream.iter_bytes():
-        await ws.send_bytes(chunk)
+        async for chunk in stream.iter_bytes():
+            # Envía audio PCM directo a Flutter
+            await ws.send_bytes(chunk)
 
+    except Exception as e:
+        print("🔥 Error en TTS STREAM:", e)
+
+    # Terminar estado pensando
     await ws.send_json({"type": "thinking", "state": False})
