@@ -102,9 +102,10 @@ async def process_stt_tts(ws: WebSocket, session: RealtimeSession):
     audio_file.name = "audio.wav"  # ← HTTPX lo requiere
 
     stt = await client.audio.transcriptions.create(
-        model=STT_MODEL,        # ← CORREGIDO
-        file=audio_file
-    )
+        model="whisper-1",
+        file=audio_file,
+        )
+
 
     text = stt.text.strip()
     print("📝 STT:", text)
