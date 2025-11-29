@@ -5,3 +5,5 @@ python-multipart
 tzdata
 pydantic
 pydantic-settings
+websockets
+wsproto
