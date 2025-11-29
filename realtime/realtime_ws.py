@@ -133,26 +133,28 @@ async def process_stt_tts(ws: WebSocket, session: RealtimeSession):
 async def send_tts_reply(ws: WebSocket, text: str):
     print("🔊 TTS:", text)
 
-    # Envía el texto antes del audio
     await ws.send_json({"type": "reply_partial", "text": text[:30]})
     await ws.send_json({"type": "reply_final", "text": text})
 
-    # ----------------------------------------------
-    # TTS STREAMING SEGURO Y PROFESIONAL
-    # ----------------------------------------------
-    response = await client.audio.speech.with_streaming_response.create(
+    # NEW: Responses API streaming PCM16
+    stream = client.responses.stream(
         model=TTS_MODEL,
-        voice=VOICE_ID,
-        input=text,
-        format="pcm16",
-        sample_rate=SAMPLE_RATE,
+        input=[{
+            "role": "assistant",
+            "content": [
+                {"type": "input_text", "text": text}
+            ]
+        }],
+        audio={
+            "voice": VOICE_ID,
+            "format": "pcm16",
+        }
     )
 
-    # STREAMING CORRECTO
-    async with response:
-        async for chunk in response.iter_bytes():
-            await ws.send_bytes(chunk)
+    async with stream as s:
+        async for event in s:
+            if event.type == "response.output_audio.delta":
+                await ws.send_bytes(event.delta)
 
-    # Fin del proceso
     await ws.send_json({"type": "thinking", "state": False})
     print("✅ Respuesta TTS enviada")
