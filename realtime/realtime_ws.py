@@ -1,8 +1,9 @@
 # realtime/realtime_ws.py
+
 import asyncio
 import json
-from io import BytesIO
-
+import wave
+import io
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from openai import AsyncOpenAI
 
@@ -14,90 +15,128 @@ TTS_MODEL = "gpt-4o-mini-tts"
 VOICE_ID = "aurivoice"
 SAMPLE_RATE = 16000
 
+
+# -------------------------------------------------------
+# PCM → WAV (PROFESSIONAL IMPLEMENTATION)
+# -------------------------------------------------------
+def pcm16_to_wav(pcm_bytes: bytes, sample_rate: int):
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)          # 16-bit PCM
+        wav.setframerate(sample_rate)
+        wav.writeframes(pcm_bytes)
+    buffer.seek(0)
+    return buffer
+
+
+# -------------------------------------------------------
+# SESSION
+# -------------------------------------------------------
 class RealtimeSession:
     def __init__(self):
-        self.buffer = bytearray()
+        self.pcm_buffer = bytearray()
 
-    def append(self, b: bytes):
-        self.buffer.extend(b)
+    def append_pcm(self, data: bytes):
+        self.pcm_buffer.extend(data)
 
     def clear(self):
-        self.buffer.clear()
+        self.pcm_buffer = bytearray()
 
 
+# -------------------------------------------------------
+# WEBSOCKET
+# -------------------------------------------------------
 @router.websocket("/realtime")
 async def realtime_socket(ws: WebSocket):
     await ws.accept()
     print("🔌 Cliente conectado")
+
     session = RealtimeSession()
 
     try:
         while True:
             msg = await ws.receive()
 
+            # Bytes = audio PCM
             if msg.get("bytes") is not None:
-                session.append(msg["bytes"])
+                session.append_pcm(msg["bytes"])
                 continue
 
+            # Texto JSON
             if msg.get("text") is not None:
                 data = json.loads(msg["text"])
                 await handle_json(ws, session, data)
 
     except WebSocketDisconnect:
         print("❌ Cliente desconectado")
-
     except Exception as e:
-        print("🔥 ERROR:", e)
+        print("🔥 ERROR en WS:", e)
 
 
+# -------------------------------------------------------
 async def handle_json(ws: WebSocket, session: RealtimeSession, msg: dict):
+
     t = msg.get("type")
 
+    # Handshake
     if t == "client_hello":
+        await ws.send_json({"type": "hello_ok"})
         print("🙋 HELLO:", msg)
 
+    # Inicio de sesión de voz
     elif t == "start_session":
-        print("🎤 Inicio sesión de voz")
+        print("🎤 Inicio sesión")
         session.clear()
         await ws.send_json({"type": "thinking", "state": True})
 
+    # Fin de audio
     elif t == "audio_end":
         await process_stt_tts(ws, session)
 
-    elif t == "stop_session":
-        await ws.send_json({"type": "thinking", "state": False})
-
+    # Comando por texto (teclado)
     elif t == "text_command":
         txt = msg.get("text", "")
         await send_tts_reply(ws, txt)
 
 
+# -------------------------------------------------------
 async def process_stt_tts(ws: WebSocket, session: RealtimeSession):
-    if len(session.buffer) == 0:
+
+    if len(session.pcm_buffer) == 0:
         await ws.send_json({"type": "thinking", "state": False})
         return
 
-    wav = BytesIO(session.buffer)
+    print(f"🎙 Recibidos {len(session.pcm_buffer)} bytes PCM")
+
+    # ------- CONVERT PCM → WAV SAFE ----------
+    wav = pcm16_to_wav(session.pcm_buffer, SAMPLE_RATE)
     wav.name = "audio.wav"
 
-    print("🎙 Whisper STT…")
+    # --------------- STT ---------------------
+    print("🧠 Whisper STT…")
     stt = await client.audio.transcriptions.create(
         model=STT_MODEL,
         file=wav,
     )
 
     text = stt.text.strip()
+    print("📝 Texto:", text)
+
     await ws.send_json({"type": "stt_final", "text": text})
 
+    # --------------- TTS ---------------------
     await send_tts_reply(ws, f"Dijiste: {text}")
 
 
+# -------------------------------------------------------
 async def send_tts_reply(ws: WebSocket, text: str):
     print("🔊 TTS:", text)
 
-    await ws.send_json({"type": "reply_partial", "text": text[:20]})
+    await ws.send_json({"type": "reply_partial", "text": text[:30]})
     await ws.send_json({"type": "reply_final", "text": text})
 
+    # Streaming de voz
     stream = await client.audio.speech.with_streaming_response.create(
         model=TTS_MODEL,
         voice=VOICE_ID,
