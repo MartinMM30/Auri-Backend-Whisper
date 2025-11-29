@@ -212,20 +212,22 @@ async def think_with_auri(user_text: str) -> str:
 # -------------------------------------------------------
 # TTS STREAMING MP3 — FINAL
 # -------------------------------------------------------
+# -------------------------------------------------------
+# TTS STREAMING MP3 — COMPATIBLE con API 2025
+# -------------------------------------------------------
 async def send_tts_reply(ws: WebSocket, text: str):
     logger.info("🔊 TTS reply: %s", text)
 
-    # Texto parcial & final
     await ws.send_json({"type": "reply_partial", "text": text[:80]})
     await ws.send_json({"type": "reply_final", "text": text})
 
     try:
-        # 🟣 STREAM MP3 (no PCM, no sample_rate)
+        # 🚀 Nueva API: NO acepta "format", NO acepta "sample_rate"
         async with client.audio.speech.with_streaming_response.create(
             model=TTS_MODEL,
             voice=VOICE_ID,
             input=text,
-            format="mp3"                # ← 🔥 CAMBIO IMPORTANTE
+            response_format="mp3"       # ✔ Formato correcto
         ) as resp:
 
             async for chunk in resp.iter_bytes():
@@ -236,7 +238,3 @@ async def send_tts_reply(ws: WebSocket, text: str):
     except Exception as e:
         logger.exception("🔥 Error generando TTS: %s", e)
         await ws.send_json({"type": "tts_error", "error": str(e)})
-
-    finally:
-        # Marca final → Flutter reproduce
-        await ws.send_json({"type": "tts_end"})
