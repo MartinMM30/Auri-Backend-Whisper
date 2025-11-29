@@ -10,6 +10,7 @@ client = AsyncOpenAI()
 # -----------------------
 # CONFIG
 # -----------------------
+STT_MODEL = "whisper-1"            # ← CORREGIDO
 TTS_MODEL = "gpt-4o-mini-tts"
 VOICE_ID = "aurivoice"
 SAMPLE_RATE = 16000
@@ -54,7 +55,7 @@ async def realtime_socket(ws: WebSocket):
                 t = msg.get("type")
 
                 if t == "client_hello":
-                    print("🙋 HELLO", msg)
+                    print("🙋 HELLO:", msg)
 
                 elif t == "start_session":
                     print("🎤 start_session")
@@ -74,10 +75,12 @@ async def realtime_socket(ws: WebSocket):
                     await send_tts_reply(ws, text)
 
                 elif t == "ping":
-                    pass  # heartbeat for Flutter
+                    pass  # heartbeat
 
     except WebSocketDisconnect:
         print("❌ Cliente desconectado")
+    except Exception as e:
+        print("🔥 ERROR:", e)
 
 
 # -----------------------
@@ -96,11 +99,11 @@ async def process_stt_tts(ws: WebSocket, session: RealtimeSession):
     print("🎙 Whisper STT…")
 
     audio_file = BytesIO(session.buffer)
-    audio_file.name = "audio.wav"  # HTTPX lo requiere
+    audio_file.name = "audio.wav"  # ← HTTPX lo requiere
 
     stt = await client.audio.transcriptions.create(
-        model="gpt-4o-mini-tts",
-        file=audio_file,
+        model=STT_MODEL,        # ← CORREGIDO
+        file=audio_file
     )
 
     text = stt.text.strip()
@@ -120,12 +123,12 @@ async def process_stt_tts(ws: WebSocket, session: RealtimeSession):
 async def send_tts_reply(ws: WebSocket, text: str):
     print("🔊 TTS generando:", text)
 
-    # Mensajes texto tipo Alexa/Siri
+    # Mensajes tipo Alexa/Siri
     await ws.send_json({"type": "reply_partial", "text": text[:15]})
     await ws.send_json({"type": "reply_partial", "text": text[:28]})
     await ws.send_json({"type": "reply_final", "text": text})
 
-    # Audio por streaming
+    # Stream de audio
     tts_stream = await client.audio.speech.with_streaming_response.create(
         model=TTS_MODEL,
         voice=VOICE_ID,
