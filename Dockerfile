@@ -12,6 +12,8 @@ COPY . /app
 
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Railway asigna PORT dinámico
 EXPOSE 8000
 
-CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000"]
+# Ejecutamos main.py que lee PORT correctamente
+CMD ["python", "main.py"]
