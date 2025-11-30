@@ -1,122 +1,117 @@
 # auribrain/actions_engine.py
 
 from datetime import datetime
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
+
+from auribrain.entity_extractor import EntityExtractor, ExtractedReminder
 
 
-class AuriActionsEngine:
+class ActionsEngine:
+  """
+  Recibe:
+    - intent (e.g. "reminder.create")
+    - mensaje del usuario
+    - contexto, memoria (opcional)
+  Y devuelve:
+    - final: texto final opcional para el usuario
+    - action: diccionario con acción para Flutter (o None)
+  """
+
+  def __init__(self):
+    self.extractor = EntityExtractor()
+
+  # API principal usada por AuriMind
+  def handle(
+    self,
+    intent: str,
+    user_msg: str,
+    context: Dict[str, Any],
+    memory,
+  ) -> Dict[str, Any]:
+    if intent == "reminder.create":
+      return self._handle_create_reminder(user_msg, context)
+
+    if intent == "reminder.remove":
+      return self._handle_delete_reminder(user_msg, context)
+
+    # Otros intents futuros (pagos específicos, etc.)
+    return {"final": None, "action": None}
+
+  # ----------------------------------------------------------
+  # CREATE REMINDER
+  # ----------------------------------------------------------
+  def _handle_create_reminder(self, user_msg: str, context: Dict[str, Any]) -> Dict[str, Any]:
+    now = datetime.utcnow()
+    parsed: Optional[ExtractedReminder] = self.extractor.extract_reminder(user_msg, now=now)
+
+    if not parsed:
+      # No pudo extraer nada fiable → sin acción, que responda normal
+      return {
+        "final": "Intenté entender el recordatorio, pero no me quedó claro. ¿Puedes repetirlo con fecha y hora?",
+        "action": None,
+      }
+
+    if not parsed.datetime:
+      # No hay fecha clara
+      final = f"Entendí que quieres recordar: “{parsed.title}”. ¿Me dices para cuándo exactamente?"
+      return {"final": final, "action": None}
+
+    # Tenemos título y fecha/hora → generamos acción
+    dt = parsed.datetime
+    dt_iso = dt.isoformat()
+
+    # Mensaje corto amigable
+    fecha_legible = dt.strftime("%d/%m a las %H:%M")
+    final = f"Listo, te recuerdo “{parsed.title}” el {fecha_legible}."
+
+    action = {
+      "type": "create_reminder",
+      "payload": {
+        "title": parsed.title,
+        "datetime": dt_iso,
+        "kind": parsed.kind,
+        "repeats": parsed.repeats,
+      },
+    }
+
+    return {"final": final, "action": action}
+
+  # ----------------------------------------------------------
+  # DELETE REMINDER
+  # ----------------------------------------------------------
+  def _handle_delete_reminder(self, user_msg: str, context: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Motor de acciones de Auri.
-    Traduce intents en acciones reales.
-    Todas las acciones retornan:
-    - message: Para mostrar al usuario
-    - action:  Evento opcional para el frontend
+    Busca un título aproximado en el mensaje y pide borrar algo con ese título.
+    Flutter se encarga de buscar el match real.
     """
+    # Reutilizamos extractor para sacar un posible título
+    parsed: Optional[ExtractedReminder] = self.extractor.extract_reminder(user_msg)
 
-    # ---------------------------------------------------------------
-    # EJECUTOR PRINCIPAL
-    # ---------------------------------------------------------------
-    def execute(self, intent: str, entities: Dict[str, Any]) -> Optional[Dict]:
-        print(f"[AuriActions] Intent: {intent}, Entities: {entities}")
+    title = None
+    if parsed and parsed.title:
+      title = parsed.title
+    else:
+      # fallback muy simple: después de "quita", "elimina", etc.
+      lowered = user_msg.lower()
+      for key in ["quita ", "elimina ", "borra ", "cancelar "]:
+        if key in lowered:
+          idx = lowered.index(key) + len(key)
+          title = user_msg[idx:].strip()
+          break
 
-        if intent == "weather.query":
-            return self._weather_open()
+    if not title:
+      return {
+        "final": "¿Cuál recordatorio quieres que quite? Dímelo con el título aproximado.",
+        "action": None,
+      }
 
-        if intent == "outfit.suggest":
-            return self._open_outfit()
+    final = f"Perfecto, intento quitar el recordatorio “{title}”."
 
-        if intent == "reminder.create":
-            return self._create_reminder(entities)
+    action = {
+      "type": "delete_reminder",
+      "payload": {
+        "title": title,
+      },
+    }
 
-        if intent == "reminder.remove":
-            return self._remove_reminder(entities)
-
-        if intent == "emotion.support":
-            return {"message": "Estoy aquí contigo 💜"}
-
-        # No hay acción directa
-        return None
-
-    # ---------------------------------------------------------------
-    # WEATHER — abre pantalla de clima
-    # ---------------------------------------------------------------
-    def _weather_open(self):
-        return {
-            "message": "Mostrando el clima 🌦️",
-            "action": {"action": "open_weather"}
-        }
-
-    # ---------------------------------------------------------------
-    # OUTFIT — sugiere ropa → abre pantalla
-    # ---------------------------------------------------------------
-    def _open_outfit(self):
-        return {
-            "message": "Veamos qué outfit te queda hoy ✨",
-            "action": {"action": "open_outfit"}
-        }
-
-    # ---------------------------------------------------------------
-    # RECORDATORIOS
-    # ---------------------------------------------------------------
-
-    def _create_reminder(self, entities: Dict[str, Any]):
-        """
-        Espera:
-        {
-            "title": "...",
-            "datetime": "2025-02-15T09:00:00"
-        }
-        """
-
-        title = entities.get("title")
-        dt_iso = entities.get("datetime")
-
-        if not title or not dt_iso:
-            return {
-                "message": "Creo que faltó la fecha u hora para ese recordatorio.",
-            }
-
-        try:
-            dt = datetime.fromisoformat(dt_iso)
-        except:
-            return {"message": "No entendí bien la fecha, ¿puedes repetirla?"}
-
-        # Aquí Auri debería guardar el recordatorio REAL en BD/Hive,
-        # pero como este engine está en backend puro,
-        # devolvemos un evento al frontend para que Flutter lo guarde.
-
-        return {
-            "message": f"Perfecto, te lo recuerdo el {dt.day}/{dt.month}.",
-            "action": {
-                "action": "create_reminder",
-                "payload": {
-                    "title": title,
-                    "datetime": dt_iso
-                }
-            }
-        }
-
-    # ---------------------------------------------------------------
-
-    def _remove_reminder(self, entities: Dict[str, Any]):
-        """
-        Espera:
-        {
-            "title": "...",
-            "datetime": "...", (opcional)
-        }
-        """
-
-        title = entities.get("title")
-
-        if not title:
-            return {"message": "¿Cuál recordatorio quieres eliminar exactamente?"}
-
-        return {
-            "message": f"Listo, quité el recordatorio de {title}.",
-            "action": {
-                "action": "delete_reminder",
-                "payload": {"title": title}
-            }
-        }
-
+    return {"final": final, "action": action}

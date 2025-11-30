@@ -8,3 +8,4 @@ pydantic-settings
 websockets
 wsproto
 aiofiles
+python-dateutil
