@@ -1,117 +1,119 @@
 # auribrain/actions_engine.py
 
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Dict, Any, Optional
 
 from auribrain.entity_extractor import EntityExtractor, ExtractedReminder
 
 
-class ActionsEngine:
-  """
-  Recibe:
-    - intent (e.g. "reminder.create")
-    - mensaje del usuario
-    - contexto, memoria (opcional)
-  Y devuelve:
-    - final: texto final opcional para el usuario
-    - action: diccionario con acción para Flutter (o None)
-  """
-
-  def __init__(self):
-    self.extractor = EntityExtractor()
-
-  # API principal usada por AuriMind
-  def handle(
-    self,
-    intent: str,
-    user_msg: str,
-    context: Dict[str, Any],
-    memory,
-  ) -> Dict[str, Any]:
-    if intent == "reminder.create":
-      return self._handle_create_reminder(user_msg, context)
-
-    if intent == "reminder.remove":
-      return self._handle_delete_reminder(user_msg, context)
-
-    # Otros intents futuros (pagos específicos, etc.)
-    return {"final": None, "action": None}
-
-  # ----------------------------------------------------------
-  # CREATE REMINDER
-  # ----------------------------------------------------------
-  def _handle_create_reminder(self, user_msg: str, context: Dict[str, Any]) -> Dict[str, Any]:
-    now = datetime.utcnow()
-    parsed: Optional[ExtractedReminder] = self.extractor.extract_reminder(user_msg, now=now)
-
-    if not parsed:
-      # No pudo extraer nada fiable → sin acción, que responda normal
-      return {
-        "final": "Intenté entender el recordatorio, pero no me quedó claro. ¿Puedes repetirlo con fecha y hora?",
-        "action": None,
-      }
-
-    if not parsed.datetime:
-      # No hay fecha clara
-      final = f"Entendí que quieres recordar: “{parsed.title}”. ¿Me dices para cuándo exactamente?"
-      return {"final": final, "action": None}
-
-    # Tenemos título y fecha/hora → generamos acción
-    dt = parsed.datetime
-    dt_iso = dt.isoformat()
-
-    # Mensaje corto amigable
-    fecha_legible = dt.strftime("%d/%m a las %H:%M")
-    final = f"Listo, te recuerdo “{parsed.title}” el {fecha_legible}."
-
-    action = {
-      "type": "create_reminder",
-      "payload": {
-        "title": parsed.title,
-        "datetime": dt_iso,
-        "kind": parsed.kind,
-        "repeats": parsed.repeats,
-      },
-    }
-
-    return {"final": final, "action": action}
-
-  # ----------------------------------------------------------
-  # DELETE REMINDER
-  # ----------------------------------------------------------
-  def _handle_delete_reminder(self, user_msg: str, context: Dict[str, Any]) -> Dict[str, Any]:
+class AuriActionsEngine:
     """
-    Busca un título aproximado en el mensaje y pide borrar algo con ese título.
-    Flutter se encarga de buscar el match real.
+    FASE 10 — Motor de acciones unificado.
+    Produce:
+        {
+            "final": "texto para usuario",
+            "action": {
+                "type": "...",
+                "payload": {...}
+            } | None
+        }
     """
-    # Reutilizamos extractor para sacar un posible título
-    parsed: Optional[ExtractedReminder] = self.extractor.extract_reminder(user_msg)
 
-    title = None
-    if parsed and parsed.title:
-      title = parsed.title
-    else:
-      # fallback muy simple: después de "quita", "elimina", etc.
-      lowered = user_msg.lower()
-      for key in ["quita ", "elimina ", "borra ", "cancelar "]:
-        if key in lowered:
-          idx = lowered.index(key) + len(key)
-          title = user_msg[idx:].strip()
-          break
+    def __init__(self, extractor: EntityExtractor):
+        self.extractor = extractor
 
-    if not title:
-      return {
-        "final": "¿Cuál recordatorio quieres que quite? Dímelo con el título aproximado.",
-        "action": None,
-      }
+    # -------------------------------------------------------------
+    # API PRINCIPAL
+    # -------------------------------------------------------------
+    def handle(
+        self,
+        intent: str,
+        text: str,
+    ) -> Dict[str, Any]:
 
-    final = f"Perfecto, intento quitar el recordatorio “{title}”."
+        if intent == "reminder.create":
+            return self._handle_create(text)
 
-    action = {
-      "type": "delete_reminder",
-      "payload": {
-        "title": title,
-      },
-    }
+        if intent == "reminder.remove":
+            return self._handle_delete(text)
 
-    return {"final": final, "action": action}
+        # Otros intents futuros: pagos, cumpleaños, clases
+        return {"final": None, "action": None}
+
+    # -------------------------------------------------------------
+    # CREAR RECORDATORIO
+    # -------------------------------------------------------------
+    def _handle_create(self, text: str) -> Dict[str, Any]:
+        now = datetime.utcnow()
+        parsed: Optional[ExtractedReminder] = self.extractor.extract_reminder(
+            text, now=now
+        )
+
+        # No se entendió nada útil
+        if not parsed:
+            return {
+                "final": "Intenté entender tu recordatorio, pero no logré captar fecha u hora. ¿Puedes repetirlo?",
+                "action": None
+            }
+
+        # Falta fecha u hora
+        if not parsed.datetime:
+            return {
+                "final": f"Entendí que quieres recordar “{parsed.title}”. ¿Para qué día y hora?",
+                "action": None,
+            }
+
+        # Éxito: tenemos título + fecha
+        dt = parsed.datetime
+        dt_iso = dt.isoformat()
+
+        fecha = dt.strftime("%d/%m a las %H:%M")
+        final = f"Perfecto, te recuerdo “{parsed.title}” el {fecha}."
+
+        action = {
+            "type": "create_reminder",
+            "payload": {
+                "title": parsed.title,
+                "datetime": dt_iso,
+                "kind": parsed.kind,
+                "repeats": parsed.repeats,
+            }
+        }
+
+        return {"final": final, "action": action}
+
+    # -------------------------------------------------------------
+    # BORRAR RECORDATORIO
+    # -------------------------------------------------------------
+    def _handle_delete(self, text: str) -> Dict[str, Any]:
+        parsed = self.extractor.extract_reminder(text)
+
+        title = None
+
+        # Caso 1: el extractor identificó un título
+        if parsed and parsed.title:
+            title = parsed.title
+
+        # Caso 2: fallback manual
+        else:
+            lowered = text.lower()
+            for k in ["quita ", "elimina ", "borra ", "cancelar "]:
+                if k in lowered:
+                    idx = lowered.index(k) + len(k)
+                    title = text[idx:].strip()
+                    break
+
+        if not title:
+            return {
+                "final": "¿Cuál recordatorio quieres eliminar exactamente?",
+                "action": None
+            }
+
+        final = f"Está bien, intentaré quitar el recordatorio “{title}”."
+
+        action = {
+            "type": "delete_reminder",
+            "payload": {"title": title}
+        }
+
+        return {"final": final, "action": action}

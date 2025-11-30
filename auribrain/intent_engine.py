@@ -8,7 +8,11 @@ class IntentEngine:
     def _rule_based(self, t):
         t = t.lower()
 
-        if any(k in t for k in ["recorda", "recuérdame", "pon un recordatorio"]):
+        if any(k in t for k in ["recorda", "recuérdame", "pon un recordatorio", "crea un recordatorio",
+    "agrega un recordatorio",
+    "anota que",
+    "recuerda que",
+    "haz un recordatorio",]):
             return "reminder.create"
         if "quita" in t and "recordatorio" in t:
             return "reminder.remove"
