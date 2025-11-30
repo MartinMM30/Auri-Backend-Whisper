@@ -1,70 +1,77 @@
-from openai import OpenAI
+# auribrain/intent_engine.py
+
+import json
+from typing import Dict, Any
 
 class IntentEngine:
-    def __init__(self):
-        self.client = OpenAI()
+    """
+    Intent Engine completo — interpreta el mensaje usando un LLM
+    y devuelve JSON estructurado con intent, entities y assistant_response.
+    """
 
-    def _rule_based(self, t):
-        t = t.lower()
+    def __init__(self, client):
+        self.client = client  # openai client
 
-        if any(k in t for k in ["recorda", "recuérdame", "pon un recordatorio"]):
-            return "reminder.create"
-        if "quita" in t and "recordatorio" in t:
-            return "reminder.remove"
+    # ---------------------------------------------------------
+    # MAIN DETECT — usa el LLM para extraer intención y datos
+    # ---------------------------------------------------------
+    def detect(self, message: str, context: Dict[str, Any]) -> Dict[str, Any]:
 
-        if any(k in t for k in ["clima", "temperatura", "tiempo"]):
-            return "weather.query"
+        system = f"""
+Eres el Intent Engine de Auri.
 
-        if any(k in t for k in ["outfit", "qué me pongo", "ropa"]):
-            return "outfit.suggest"
+Tu única tarea es devolver un JSON válido que describa:
+- intent: nombre único
+- entities: objeto con parámetros extraídos
+- assistant_response: frase breve y amable que Auri podría decir
 
-        if any(k in t for k in ["cómo estoy", "cómo me ves"]):
-            return "user.state"
+Nunca devuelvas nada fuera de JSON.
 
-        if any(k in t for k in ["personalidad", "tu voz"]):
-            return "auri.config"
+Contexto del usuario:
+{json.dumps(context, indent=2)}
 
-        if any(k in t for k in ["estoy triste", "estresado"]):
-            return "emotion.support"
-
-        if any(k in t for k in ["hola", "buenos días", "buenas tardes"]):
-            return "smalltalk.greeting"
-
-        if any(k in t for k in ["chiste", "divertido"]):
-            return "fun.joke"
-
-        return None
-
-    def _llm(self, text):
-        prompt = f"""
-Clasifica este mensaje en un solo intent válido:
+Intents soportados:
 - reminder.create
 - reminder.remove
 - weather.query
 - outfit.suggest
-- knowledge.query
-- smalltalk.greeting
-- fun.joke
 - user.state
 - emotion.support
+- smalltalk.greeting
+- fun.joke
 - auri.config
 - conversation.general
+- unknown
 
-Mensaje: "{text}"
+Ejemplos de entidades:
+- title
+- datetime (ISO)
+- date
+- time
+- city
+- emotion
+- ui_target
+
+Responde solo con JSON.
 """
+
+        user_prompt = f"Usuario dijo: {message}"
+
         resp = self.client.responses.create(
             model="gpt-4o-mini",
             input=[
-                {"role": "system", "content": "Eres un clasificador experto."},
-                {"role": "user", "content": prompt}
+                {"role": "system", "content": system},
+                {"role": "user", "content": user_prompt},
             ]
         )
 
-        return resp.output_text.strip()
+        raw = resp.output_text.strip()
 
-
-    def detect(self, text):
-        rule = self._rule_based(text)
-        if rule:
-            return rule
-        return self._llm(text)
+        try:
+            return json.loads(raw)
+        except:
+            return {
+                "intent": "unknown",
+                "entities": {},
+                "assistant_response": "No estoy segura, ¿podrías repetirlo?"
+            }
