@@ -1,95 +1,55 @@
 # auribrain/response_engine.py
 
+from typing import Any, Dict
+
+
 class ResponseEngine:
-  def __init__(self):
-    pass
+    """
+    Se encarga de construir la respuesta final de texto
+    usando:
+      - intent
+      - contexto (clima, usuario, eventos)
+      - estilo de personalidad
+      - memoria
+      - respuesta cruda del LLM (raw_answer)
+    """
 
-  # -------------------------------------------------------------------
-  # Plantillas base por intención
-  # -------------------------------------------------------------------
-  def intent_templates(self):
-    return {
-      "reminder.create": "Te ayudo con ese recordatorio.",
-      "reminder.remove": "Puedo quitar ese recordatorio.",
-      "weather.query": "Te cuento cómo está el clima.",
-      "outfit.suggest": "Déjame ver qué te recomiendo.",
-      "user.state": "Estoy atento a cómo te sientes.",
-      "emotion.support": "Estoy aquí contigo.",
-      "auri.config": "Claro, ajustemos tu configuración.",
-      "knowledge.query": "Déjame explicártelo.",
-      "smalltalk.greeting": "Claro, hablemos.",
-      "fun.joke": "Aquí va uno.",
-      "conversation.general": "Te respondo a eso.",
-      "unknown": "Lo estoy pensando un momento.",
-    }
+    def build(
+        self,
+        intent: str,
+        style: Dict[str, Any],
+        context: Dict[str, Any],
+        memory,
+        user_msg: str,
+        raw_answer: str,
+    ) -> str:
+        # =====================================================
+        # 1) CLIMA — override duro con contexto
+        # =====================================================
+        if intent == "weather.query":
+            weather_str = context.get("weather") or "unknown"
+            user = context.get("user") or {}
+            city = None
 
-  # -------------------------------------------------------------------
-  # Respuesta final combinando contexto + memoria + estilo + LLM
-  # -------------------------------------------------------------------
-  def build(self, intent, style, context, memory, user_msg, raw_answer):
-    tone = style.get("tone", "")
-    traits = style.get("traits", [])
+            if isinstance(user, dict):
+                city = user.get("city")
 
-    base = self.intent_templates()
-    intent_base = base.get(intent, base["unknown"])
+            # Si no hay clima válido en contexto
+            if not weather_str or weather_str == "unknown":
+                return "Todavía no tengo el clima actualizado, pero pronto podré ayudarte con eso."
 
-    # ---------- 2. Texto de contexto (más suave) ----------
-    ctx_parts = []
+            # Si tenemos ciudad, lo hacemos más bonito
+            if city:
+                return f"Ahora mismo en {city} está {weather_str}."
+            else:
+                return f"Ahora mismo el clima está {weather_str}."
 
-    weather = context.get("weather", "").lower()
-    tod = context.get("time_of_day", "")
-    energy = context.get("energy", "")
-    workload = context.get("workload", "")
+        # =====================================================
+        # 2) Otros intents: usamos la respuesta cruda del LLM
+        #    (ya viene limitada a 1–2 frases por el system prompt)
+        # =====================================================
+        text = (raw_answer or "").strip()
+        if not text:
+            text = "Lo siento, no estoy seguro de qué responder."
 
-    if "rain" in weather:
-      ctx_parts.append("Parece que afuera está lluvioso.")
-    elif "sun" in weather:
-      ctx_parts.append("El clima está bastante agradable.")
-
-    if tod == "night":
-      ctx_parts.append("Ya es de noche, intento ser más breve.")
-    elif tod == "morning":
-      ctx_parts.append("Es una buena mañana.")
-
-    if energy == "low":
-      ctx_parts.append("Trataré de no abrumarte.")
-    elif energy == "high":
-      ctx_parts.append("Aprovechemos que tienes buena energía.")
-
-    if workload == "busy":
-      ctx_parts.append("Veo que tienes bastantes cosas por hacer.")
-    elif workload == "overloaded":
-      ctx_parts.append("Tu agenda está cargada, puedo ayudarte a ordenar.")
-
-    context_sentence = " ".join(ctx_parts)
-
-    # ---------- 3. Sin repetir literalmente el mensaje del usuario ----------
-    # (El system prompt ya indica no recapitular, así que no añadimos mem_line)
-
-    final = f"{intent_base} "
-
-    if context_sentence:
-      final += context_sentence + " "
-
-    final += f"({tone}). {raw_answer.strip()}"
-
-    final = self._humanize(final)
-    return final.strip()
-
-  # -------------------------------------------------------------------
-  # Suavizador
-  # -------------------------------------------------------------------
-  def _humanize(self, text):
-    replacements = {
-      "Estoy procesando": "Déjame pensarlo un momento",
-      "Aquí tienes mi respuesta": "Te cuento lo que he pensado",
-      "Te explico": "Mira, lo veo así",
-    }
-
-    for k, v in replacements.items():
-      text = text.replace(k, v)
-
-    while "  " in text:
-      text = text.replace("  ", " ")
-
-    return text
+        return text
