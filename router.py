@@ -28,24 +28,41 @@ class MemoryRememberRequest(BaseModel):
     key: str
     value: str
 
+# EVENTOS
 class EventIn(BaseModel):
     title: str
     urgent: bool = False
     when: Optional[str] = None
 
+# CLIMA
 class WeatherIn(BaseModel):
     temp: float
     description: str
 
+# USER
+class UserIn(BaseModel):
+    name: Optional[str] = None
+    city: Optional[str] = None
+
+# PREFS
+class PrefsIn(BaseModel):
+    shortReplies: Optional[bool] = False
+    softVoice: Optional[bool] = False
+    personality: Optional[str] = "auri_classic"
+
+# CONTEXTO COMPLETO
 class ContextUpdateRequest(BaseModel):
     weather: Optional[WeatherIn] = None
     events: Optional[List[EventIn]] = None
+    user: Optional[UserIn] = None
+    prefs: Optional[PrefsIn] = None
 
 # Adaptador clima
 class _SimpleWeather:
     def __init__(self, temp, description):
         self.temp = temp
         self.description = description
+
 
 # ---------------- THINK ----------------
 
@@ -58,12 +75,14 @@ async def think(req: ThinkRequest):
         final=result.get("final", ""),
     )
 
+
 # ---------------- TIMEZONE ----------------
 
 @router.post("/timezone/set")
 async def set_timezone(req: TimezoneRequest):
     auri.context.update_timezone(req.timezone)
     return {"ok": True, "timezone": str(auri.context.tz)}
+
 
 # ---------------- PERSONALIDAD ----------------
 
@@ -78,6 +97,7 @@ async def get_personality():
     style = auri.personality.get_style()
     return {"active": auri.personality.current, "tone": style["tone"], "traits": style["traits"]}
 
+
 # ---------------- MEMORIA ----------------
 
 @router.post("/memory/remember")
@@ -89,17 +109,50 @@ async def remember(req: MemoryRememberRequest):
 async def get_profile():
     return auri.memory.get_profile()
 
+
 # ---------------- CONTEXTO ----------------
 
-@router.post("/context/update")
-async def update_context(req: ContextUpdateRequest):
+@router.post("/context/sync")
+async def context_sync(req: ContextUpdateRequest):
+
+    # WEATHER
     if req.weather:
-        auri.context.set_weather(_SimpleWeather(req.weather.temp, req.weather.description))
+        auri.context.set_weather(
+            _SimpleWeather(req.weather.temp, req.weather.description)
+        )
 
+    # EVENTS
     if req.events:
-        auri.context.set_events([e.dict() for e in req.events])
+        parsed = []
+        for e in req.events:
+            parsed.append({
+                "title": e.title,
+                "urgent": e.urgent,
+                "when": e.when
+            })
+        auri.context.set_events(parsed)
 
-    return {"ok": True}
+    # USER
+    if req.user:
+        auri.context.set_user({
+            "name": req.user.name,
+            "city": req.user.city,
+        })
+
+    # PREFS
+    if req.prefs:
+        auri.context.set_prefs({
+            "shortReplies": req.prefs.shortReplies,
+            "softVoice": req.prefs.softVoice,
+            "personality": req.prefs.personality,
+        })
+
+        # Aplicar personalidad automáticamente
+        if req.prefs.personality:
+            auri.personality.set_personality(req.prefs.personality)
+
+    return {"ok": True, "updated": True}
+
 
 @router.get("/context/debug")
 async def debug_context():
