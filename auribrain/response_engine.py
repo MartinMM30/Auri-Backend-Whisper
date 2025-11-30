@@ -1,55 +1,33 @@
-# auribrain/response_engine.py
-
-from typing import Any, Dict
-
-
 class ResponseEngine:
-    """
-    Se encarga de construir la respuesta final de texto
-    usando:
-      - intent
-      - contexto (clima, usuario, eventos)
-      - estilo de personalidad
-      - memoria
-      - respuesta cruda del LLM (raw_answer)
-    """
 
-    def build(
-        self,
-        intent: str,
-        style: Dict[str, Any],
-        context: Dict[str, Any],
-        memory,
-        user_msg: str,
-        raw_answer: str,
-    ) -> str:
-        # =====================================================
-        # 1) CLIMA — override duro con contexto
-        # =====================================================
-        if intent == "weather.query":
-            weather_str = context.get("weather") or "unknown"
-            user = context.get("user") or {}
-            city = None
+    def build(self, intent, style, context, memory, user_msg, raw_answer):
 
-            if isinstance(user, dict):
-                city = user.get("city")
+        txt = user_msg.lower()
 
-            # Si no hay clima válido en contexto
-            if not weather_str or weather_str == "unknown":
-                return "Todavía no tengo el clima actualizado, pero pronto podré ayudarte con eso."
+        # -----------------------------------------
+        # 🌦 OVERRIDE DE CLIMA CORREGIDO
+        # -----------------------------------------
+        if "clima" in txt or "temperatura" in txt or "tiempo" in txt:
 
-            # Si tenemos ciudad, lo hacemos más bonito
-            if city:
-                return f"Ahora mismo en {city} está {weather_str}."
-            else:
-                return f"Ahora mismo el clima está {weather_str}."
+            w = context.get("weather")
+            u = context.get("user", {})
+            city = u.get("city", "tu ciudad")
 
-        # =====================================================
-        # 2) Otros intents: usamos la respuesta cruda del LLM
-        #    (ya viene limitada a 1–2 frases por el system prompt)
-        # =====================================================
-        text = (raw_answer or "").strip()
-        if not text:
-            text = "Lo siento, no estoy seguro de qué responder."
+            if not w:
+                return f"No tengo clima sincronizado aún. Actualiza tu ubicación primero."
 
-        return text
+            temp = w.get("temp")
+            desc = w.get("description")
+
+            return f"Ahora mismo en {city} está {temp}°C con {desc}."
+
+        # -----------------------------------------
+        # RECORDATORIOS y ACCIONES
+        # (creados por ActionsEngine)
+        # -----------------------------------------
+        action = memory.last_action
+        if action:
+            memory.last_action = None
+            return raw_answer
+
+        return raw_answer
