@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from realtime.realtime_ws import router as realtime_router
-from router import router as api_router  # auri REST
+from auri_backend_whisper.api_router import router as api_router  # auri REST
 
 app = FastAPI(title="Auri Backend v4")
 
