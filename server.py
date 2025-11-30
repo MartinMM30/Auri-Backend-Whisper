@@ -20,7 +20,7 @@ app.add_middleware(
 
 # Routers
 app.include_router(api_router, prefix="/api")
-app.include_router(ws_router, prefix="/realtime")
+app.include_router(ws_router)
 
 @app.get("/")
 def root():
