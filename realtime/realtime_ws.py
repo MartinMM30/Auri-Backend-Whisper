@@ -62,25 +62,39 @@ async def realtime_socket(ws: WebSocket):
         while True:
             msg = await ws.receive()
 
-            # AUDIO PCM DEL MIC
+            # -----------------------------
+            # 1) Detecta desconexión REAL
+            # -----------------------------
+            if msg["type"] == "websocket.disconnect":
+                logger.info("❌ Cliente desconectado")
+                break
+
+            # -----------------------------
+            # 2) AUDIO BINARIO
+            # -----------------------------
             if msg.get("bytes") is not None:
                 session.append_pcm(msg["bytes"])
                 continue
 
-            # MENSAJE JSON
+            # -----------------------------
+            # 3) TEXTO JSON
+            # -----------------------------
             if msg.get("text") is not None:
                 try:
                     data = json.loads(msg["text"])
-                except Exception:
-                    logger.warning("⚠ JSON inválido recibido")
-                    continue
-
-                await handle_json(ws, session, data)
+                    await handle_json(ws, session, data)
+                except Exception as e:
+                    logger.warning(f"⚠ JSON inválido: {e}")
+                continue
 
     except WebSocketDisconnect:
-        logger.info("❌ Cliente desconectado")
+        logger.info("❌ Cliente desconectado (exception)")
+
     except Exception as e:
-        logger.exception("🔥 ERROR en WS principal: %s", e)
+        logger.exception(f"🔥 ERROR en WS principal: {e}")
+
+    finally:
+        logger.info("🔌 WS cerrado")
 
 
 # -------------------------------------------------------
