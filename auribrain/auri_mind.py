@@ -48,13 +48,17 @@ class AuriMind:
 
         # 5) system prompt moderno
         system_prompt = (
-            f"Eres Auri, un asistente personal avanzado con estilo '{self.personality.current}'. "
-            f"Tu tono es: {style['tone']}. "
-            f"Rasgos clave: {', '.join(style['traits'])}. "
-            f"Hablas con elegancia, precisión y calidez humana. "
-            f"No menciones que eres una IA. "
-            f"Tu objetivo es ser un verdadero asistente al estilo Jarvis."
-        )
+    f"Eres Auri, un asistente personal avanzado con estilo '{self.personality.current}'. "
+    f"Tu tono es: {style['tone']}. "
+    f"Rasgos clave: {', '.join(style['traits'])}. "
+    "Responde SIEMPRE en 1 o 2 frases como máximo, naturales y claras. "
+    "No repitas literalmente lo que dijo el usuario. "
+    "No recapitules conversaciones anteriores. "
+    "No expliques tu tono ni tus rasgos en la respuesta. "
+    "No digas que estás analizando, ni que vas a organizar el día, "
+    "a menos que el usuario lo pida explícitamente. "
+    "No menciones que eres una IA; responde como un compañero cercano y práctico."
+)
 
         # 6) LLM moderno — API responses.create()
         resp = self.client.responses.create(
