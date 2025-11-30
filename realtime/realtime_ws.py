@@ -123,18 +123,24 @@ async def process_stt_tts(ws: WebSocket, session: RealtimeSession):
     await ws.send_json({"type": "thinking", "state": True})
 
     try:
-        # PCM → WAV
         wav = pcm16_to_wav(session.pcm_buffer, SAMPLE_RATE)
         wav.name = "audio.wav"
 
-        # ---- STT ----
+        # ---------- STT ----------
         logger.info("🧠 Whisper STT…")
         stt = await client.audio.transcriptions.create(
             model=STT_MODEL,
             file=wav,
         )
+
         text = (getattr(stt, "text", "") or "").strip()
         logger.info("📝 Texto STT: %s", text)
+
+        # ---------- FIX IMPORTANTE ----------
+        # Cortar todo lo que venga ANTES de "Auri"
+        low = text.lower()
+        if "auri" in low:
+            text = low.split("auri", 1)[1].strip()
 
         await ws.send_json({"type": "stt_final", "text": text})
 
@@ -145,34 +151,24 @@ async def process_stt_tts(ws: WebSocket, session: RealtimeSession):
             })
             return
 
-        # ---- THINK → ACTION ----
-        think_result = await think_with_auri(text)
-        reply_text = think_result["text"]
-        action = think_result["action"]
+        # ---------- THINK ----------
+        reply = await think_with_auri(text)
 
-        # ---- ENVIAR TTS ----
-        await send_tts_reply(ws, reply_text)
-
-        # ---- ENVIAR ACCIÓN (si existe) ----
-        if action:
-            logger.info("⚡ Acción generada: %s", action)
-            await ws.send_json({
-                "type": "action",
-                "action": action.get("type"),
-                "payload": action.get("payload")
-            })
+        # ---------- TTS ----------
+        await send_tts_reply(ws, reply)
 
     except Exception as e:
         logger.exception("🔥 Error en pipeline: %s", e)
         await ws.send_json({
             "type": "reply_final",
-            "text": "Lo siento, tuve un problema procesando tu voz."
+            "text": "Lo siento, tuve un problema interno procesando tu voz."
         })
 
     finally:
         await ws.send_json({"type": "thinking", "state": False})
         await ws.send_json({"type": "tts_end"})
         session.clear()
+
 
 
 # -------------------------------------------------------
