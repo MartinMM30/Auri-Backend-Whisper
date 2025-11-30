@@ -1,48 +1,117 @@
-from fastapi import APIRouter
-from pydantic import BaseModel
-from typing import List, Optional
-
-from auribrain.auri_mind import AuriMind
-
-auri = AuriMind()
-router = APIRouter()
+from datetime import datetime, timedelta
+from typing import Any, Dict, Optional
 
 
-class WeatherIn(BaseModel):
-    temp: float
-    description: str
+class ContextEngine:
+
+    def __init__(self):
+        self.memory = None
+
+        # ------- DATOS CORE -------
+        self.user = {
+            "name": None,
+            "city": None,
+            "birthday": None,
+        }
+
+        # ------- CLIMA -------
+        self.weather = {
+            "temp": None,
+            "description": None,
+            "timestamp": None
+        }
+
+        # ------- EVENTOS / AGENDA -------
+        # Lista de:
+        # { "title": "...", "when": "ISO", "urgent": False }
+        self.events = []
+
+        # ------- PAGOS -------
+        # Lista de:
+        # { "title": "...", "amount": X, "due": "ISO" }
+        self.bills = []
+
+        # ------- PREFERENCIAS -------
+        self.prefs = {
+            "shortReplies": False,
+            "softVoice": False,
+            "personality": "auri_classic",
+        }
+
+        # ------- ZONA HORARIA -------
+        self.tz = "UTC"
 
 
-class ContextUpdateRequest(BaseModel):
-    weather: Optional[WeatherIn] = None
-    events: Optional[list] = None
-    user: Optional[dict] = None
-    prefs: Optional[dict] = None
+    # ====================================================
+    # CONFIG
+    # ====================================================
+    def attach_memory(self, memory):
+        self.memory = memory
 
 
-class _SimpleWeather:
-    def __init__(self, temp, description):
-        self.temp = temp
-        self.description = description
+    # ====================================================
+    # SETTERS
+    # ====================================================
+    def set_weather(self, w):
+        self.weather = {
+            "temp": getattr(w, "temp", None),
+            "description": getattr(w, "description", None),
+            "timestamp": datetime.utcnow().isoformat()
+        }
+
+    def set_user(self, user_dict: Dict[str, Any]):
+        for key in ["name", "city", "birthday"]:
+            if key in user_dict:
+                self.user[key] = user_dict[key]
+
+    def set_events(self, events_list):
+        self.events = events_list or []
+
+    def set_bills(self, bills_list):
+        self.bills = bills_list or []
+
+    def set_prefs(self, prefs_dict):
+        for key in self.prefs.keys():
+            if key in prefs_dict:
+                self.prefs[key] = prefs_dict[key]
+
+    def update_timezone(self, tz: str):
+        self.tz = tz
 
 
-@router.post("/context/sync")
-async def context_sync(req: ContextUpdateRequest):
+    # ====================================================
+    # GETTERS
+    # ====================================================
+    def get_today_events(self):
+        today = datetime.utcnow().date()
+        return [
+            e for e in self.events
+            if e.get("when") and datetime.fromisoformat(e["when"]).date() == today
+        ]
 
-    if req.weather:
-        print("🌦 WEATHER SYNC:", req.weather)
-        auri.context.set_weather(_SimpleWeather(req.weather.temp, req.weather.description))
+    def get_upcoming_events(self):
+        now = datetime.utcnow()
+        return [
+            e for e in self.events
+            if e.get("when") and datetime.fromisoformat(e["when"]) > now
+        ]
 
-    if req.events:
-        auri.context.set_events(req.events)
+    def get_due_bills(self):
+        now = datetime.utcnow()
+        return [
+            b for b in self.bills
+            if b.get("due") and datetime.fromisoformat(b["due"]) >= now
+        ]
 
-    if req.user:
-        auri.context.set_user(req.user)
-
-    if req.prefs:
-        auri.context.set_prefs(req.prefs)
-
-        if "personality" in req.prefs:
-            auri.personality.set_personality(req.prefs["personality"])
-
-    return {"ok": True, "updated": True}
+    # ====================================================
+    # CONTEXTO COMPLETO (para response / LLM)
+    # ====================================================
+    def get_daily_context(self):
+        return {
+            "user": self.user,
+            "weather": self.weather,
+            "events": self.events,
+            "bills": self.bills,
+            "prefs": self.prefs,
+            "timezone": self.tz,
+        }
