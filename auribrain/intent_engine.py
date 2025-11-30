@@ -1,8 +1,9 @@
 from openai import OpenAI
 
 class IntentEngine:
-    def __init__(self):
-        self.client = OpenAI()
+    def __init__(self, client: OpenAI = None):
+        # Usa el cliente recibido o crea uno propio
+        self.client = client or OpenAI()
 
     def _rule_based(self, t):
         t = t.lower()
@@ -57,7 +58,7 @@ Mensaje: "{text}"
             model="gpt-4o-mini",
             input=[
                 {"role": "system", "content": "Eres un clasificador experto."},
-                {"role": "user", "content": prompt}
+                {"role": "user", "content": prompt},
             ]
         )
 
