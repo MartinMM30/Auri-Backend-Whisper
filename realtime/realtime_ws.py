@@ -236,26 +236,52 @@ async def think_with_auri(user_text: str) -> dict:
 # -------------------------------------------------------
 # TTS STREAMING — MP3
 # -------------------------------------------------------
-async def send_tts_reply(ws: WebSocket, text: str):
-    logger.info("🔊 TTS reply: %s", text)
+async def send_tts_reply(ws: WebSocket, reply: dict):
+    """
+    reply ahora es un dict:
+    {
+        "text": "...",
+        "action": { ... }  # opcional
+    }
+    """
+    if isinstance(reply, dict):
+        text = reply.get("text", "")
+        action = reply.get("action")
+    else:
+        text = str(reply)
+        action = None
 
-    # Mostrar texto parcial y final en la UI
+    # ---------------------------------------------------
+    # Enviar texto parcial y final
+    # ---------------------------------------------------
     await ws.send_json({"type": "reply_partial", "text": text[:80]})
     await ws.send_json({"type": "reply_final", "text": text})
 
+    # ---------------------------------------------------
+    # Si hay acción → mándala (FASE 8/10)
+    # ---------------------------------------------------
+    if action:
+        await ws.send_json({
+            "type": "action",
+            "action": action.get("type"),
+            "payload": action.get("payload"),
+        })
+
+    # ---------------------------------------------------
+    # TTS STREAMING
+    # ---------------------------------------------------
     try:
-        # 🔥 Nueva API TTS 2025
         async with client.audio.speech.with_streaming_response.create(
             model=TTS_MODEL,
             voice=VOICE_ID,
             input=text,
-            response_format="mp3"     # ✔ correcto
+            response_format="mp3"
         ) as resp:
 
             async for chunk in resp.iter_bytes():
                 await ws.send_bytes(chunk)
 
-        logger.info("✅ TTS enviado")
+        logger.info("✅ TTS enviado correctamente")
 
     except Exception as e:
         logger.exception("🔥 Error generando TTS: %s", e)
