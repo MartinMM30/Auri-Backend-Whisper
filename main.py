@@ -1,12 +1,10 @@
-import os
 import uvicorn
-from server import app  # usa tu FastAPI real con los routers ya incluidos
+from server import app
 
 if __name__ == "__main__":
     uvicorn.run(
-        "server:app",
+        app,
         host="0.0.0.0",
-        port=int(os.environ.get("PORT", 8000)),
-        reload=False,
+        port=8080,
         workers=1
     )

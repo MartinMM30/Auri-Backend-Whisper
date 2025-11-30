@@ -1,21 +1,27 @@
+# server.py — versión correcta para tu backend actual
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from realtime.realtime_ws import router as realtime_router
-from auri_backend_whisper.api_router import router as api_router  # auri REST
+# Routers reales
+from api_router import router as api_router           # /api
+from realtime.realtime_ws import router as ws_router  # /realtime
 
-app = FastAPI(title="Auri Backend v4")
+app = FastAPI(title="Auri Backend")
 
+# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-app.include_router(realtime_router)
-app.include_router(api_router)
+# Routers
+app.include_router(api_router, prefix="/api")
+app.include_router(ws_router, prefix="/realtime")
 
 @app.get("/")
-async def root():
-    return {"status": "ok", "service": "auri_realtime_v4"}
+def root():
+    return {"status": "ok", "msg": "Auri backend running"}
