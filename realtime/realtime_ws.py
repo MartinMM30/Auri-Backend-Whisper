@@ -162,31 +162,27 @@ async def process_text_only(ws: WebSocket, text: str):
 
 
 async def send_tts(ws: WebSocket, text: str, voice_id: str = "alloy"):
-    # Texto parcial y final
+    # Texto para la UI
     await ws.send_json({"type": "reply_partial", "text": text[:60]})
     await ws.send_json({"type": "reply_final", "text": text})
 
     try:
-        # INICIO TTS
-        await ws.send_json({"type": "tts_start"})
-
+        # IMPORTANTE: SIN sample_rate
         async with client.audio.speech.with_streaming_response.create(
             model=TTS_MODEL,
             voice=voice_id,
             input=text,
-            response_format="pcm",  # ← USAR PCM PURO
-            sample_rate=SAMPLE_RATE
+            response_format="mp3",
         ) as resp:
             async for chunk in resp.iter_bytes():
-                await ws.send_json({
-                    "type": "tts_audio_chunk",
-                    "data": chunk.hex(),   # PCM → hex string
-                })
+                await ws.send_bytes(chunk)
 
-        # FIN TTS
+        # Avisar al cliente que terminó el audio
         await ws.send_json({"type": "tts_end"})
 
     except Exception as e:
         logger.exception("🔥 TTS error: %s", e)
         await ws.send_json({"type": "tts_error", "error": str(e)})
+        # Igual avisamos fin de TTS para que el cliente no se quede colgado
+        await ws.send_json({"type": "tts_end"})
 
