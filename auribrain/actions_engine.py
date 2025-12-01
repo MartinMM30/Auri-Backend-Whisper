@@ -69,20 +69,18 @@ class ActionsEngine:
     # ==============================================================
     # DELETE REMINDER (MEGA FIX)
     # ==============================================================
-       # ==============================================================
-    # DELETE REMINDER (FIX)
-    # ==============================================================
     def _handle_delete_reminder(self, user_msg: str):
         """
         FIX:
         - Si EntityExtractor falla → fallback automático
-        - Limpia frases como:
-            "el recordatorio de", "el recordatorio del",
-            "recordatorio de", "recordatorio del"
-        - No necesita fecha para borrar: sólo el título aproximado
+        - Se limpian frases como:
+            "quita", "elimina", "borra", "deseo quitar", "quiero borrar"
+        - Si no hay fecha → no importa, igual se elimina por título
         """
 
+        # -----------------------------
         # 1) Intentar extracción normal
+        # -----------------------------
         try:
             parsed = self.extractor.extract_reminder(user_msg)
         except Exception:
@@ -90,7 +88,9 @@ class ActionsEngine:
 
         title = parsed.title if parsed and parsed.title else None
 
-        # 2) Fallback: texto después de verbos típicos
+        # -----------------------------
+        # 2) Fallback: extraer texto después del verbo
+        # -----------------------------
         if not title:
             lowered = user_msg.lower()
 
@@ -98,8 +98,7 @@ class ActionsEngine:
                 "quita ", "elimina ", "borra ",
                 "quiero quitar ", "quiero eliminar ", "quiero borrar ",
                 "deseo quitar ", "deseo eliminar ", "deseo borrar ",
-                "quiero borrar ", "deseo borrar ",
-                "quita el ", "quita la ", "elimina el ", "elimina la ",
+                "quita el ", "quita la ", "elimina el ", "elimina la "
             ]
 
             for t in triggers:
@@ -108,42 +107,24 @@ class ActionsEngine:
                     title = user_msg[idx:].strip()
                     break
 
-        # 3) Limpieza extra de "recordatorio de..."
-        if title:
-            raw = title.strip().lower()
-
-            prefixes = [
-                "el recordatorio de ",
-                "el recordatorio del ",
-                "el recordatorio ",
-                "recordatorio de ",
-                "recordatorio del ",
-                "recordatorio ",
-            ]
-            for p in prefixes:
-                if raw.startswith(p):
-                    raw = raw[len(p):].strip()
-                    break
-
-            # Quitar "de " sobrante al inicio (ej: "de pagar la renta")
-            if raw.startswith("de "):
-                raw = raw[3:]
-
-            # Quitar punto final
-            if raw.endswith("."):
-                raw = raw[:-1].strip()
-
-            title = raw
-
-        # 4) Fallback ultra simple: palabras clave
+        # -----------------------------
+        # 3) Fallback extra de palabras clave
+        # -----------------------------
         if not title:
-            lowered = user_msg.lower()
-            for k in ["agua", "luz", "internet", "teléfono", "telefono", "renta", "gato"]:
-                if k in lowered:
+            keywords = [
+                "agua", "luz", "internet", "teléfono", "telefono",
+                "renta", "alquiler", "gato", "perro", "tarea",
+                "examen", "pago", "recordatorio"
+            ]
+            l = user_msg.lower()
+            for k in keywords:
+                if k in l:
                     title = k
                     break
 
-        # 5) Si AÚN no hay título
+        # -----------------------------
+        # 4) Si AÚN no hay título
+        # -----------------------------
         if not title:
             return {
                 "final": "¿Qué recordatorio deseas quitar?",
