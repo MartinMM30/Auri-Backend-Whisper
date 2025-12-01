@@ -28,7 +28,6 @@ class PersonalityEngine:
             },
         }
 
-    # ---------------------------------------------------------
     def set_personality(self, key):
         if key in self.styles:
             self.current = key
@@ -48,8 +47,8 @@ class PersonalityEngine:
     def contextual_adjustment(self, ctx):
         parts = []
 
-        # WEATHER — ahora soporta dict
-        w = ctx.get("weather")
+        # WEATHER
+        w = ctx.get("weather", {})
         desc = ""
 
         if isinstance(w, dict):
@@ -64,14 +63,14 @@ class PersonalityEngine:
         elif "sole" in desc:
             parts.append("animado por el sol")
 
-        # EVENTS — carga del día
+        # WORKLOAD
         events = ctx.get("events", [])
         if len(events) >= 4:
             parts.append("más organizado para ayudarte hoy")
 
-        # BILLS — estrés financiero
+        # BILLS
         bills = ctx.get("bills", [])
-        if any(b for b in bills):
+        if bills:
             parts.append("considerando que hoy tienes pendientes importantes")
 
         return ", ".join(parts) if parts else None

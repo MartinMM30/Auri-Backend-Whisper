@@ -50,35 +50,41 @@ class AuriMind:
         ctx = self.context.get_daily_context()
 
         # 4) personalidad dinámica
-        style = self.personality.build_final_style(context=ctx, emotion=self.memory.get_emotion())
+        style = self.personality.build_final_style(
+            context=ctx,
+            emotion=self.memory.get_emotion()
+        )
         tone = style["tone"]
 
         # ---------------------------------------------------------
-        # CONTEXTO PARA EL PROMPT (nuevo)
+        # CONTEXTO PARA LLM
         # ---------------------------------------------------------
+        weather_txt = "No disponible"
+        if isinstance(ctx["weather"], dict) and ctx["weather"].get("temp"):
+            weather_txt = f"{ctx['weather']['temp']}°C, {ctx['weather'].get('description')}"
+
         ctx_prompt = (
             f"Nombre del usuario: {ctx['user'].get('name')}\n"
             f"Ciudad: {ctx['user'].get('city')}\n"
-            f"Clima: {ctx['weather'].get('temp')}°C, {ctx['weather'].get('description')}\n"
-            f"Eventos del día: {ctx['events']}\n"
-            f"Pagos pendientes: {ctx['bills']}\n"
+            f"Clima actual: {weather_txt}\n"
+            f"Eventos: {ctx['events']}\n"
+            f"Pagos: {ctx['bills']}\n"
             f"Preferencias: {ctx['prefs']}\n"
         )
 
         # ---------------------------------------------------------
-        # 5) SYSTEM PROMPT
+        # SYSTEM PROMPT
         # ---------------------------------------------------------
         system_prompt = (
             "Eres Auri, un asistente personal cálido, humano y cercano. "
             f"Habla en un tono {tone}. "
-            "Responde siempre en 1 o 2 frases. "
-            "Nunca menciones tu proceso interno ni tu análisis. "
-            "Usa el contexto si es útil.\n\n"
+            "Responde siempre en 1 o 2 frases cortas y naturales. "
+            "Nunca menciones tu proceso interno ni análisis. "
+            "Si el contexto es relevante, úsalo.\n\n"
             f"--- CONTEXTO DEL USUARIO ---\n{ctx_prompt}\n"
-            "-----------------------------\n"
         )
 
-        # 6) LLM REQUEST
+        # 5) LLM
         resp = self.client.responses.create(
             model="gpt-4o-mini",
             input=[
@@ -89,7 +95,7 @@ class AuriMind:
 
         raw_answer = resp.output_text.strip()
 
-        # 7) Acciones
+        # 6) ACTIONS ENGINE
         action_result = self.actions.handle(
             intent=intent,
             user_msg=user_msg,
