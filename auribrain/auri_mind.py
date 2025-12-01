@@ -10,8 +10,41 @@ from auribrain.entity_extractor import EntityExtractor
 
 class AuriMind:
     """
-    Núcleo de inteligencia de Auri — Versión V3.5 (CON CONTEXTO ESTRICTO)
+    AuriMind V4 — Identidad estable, contexto completo, personalidad dinámica.
     """
+
+    PERSONALITY_PRESETS = {
+        "auri_classic": {
+            "tone": "cálido y profesional",
+            "emoji": "💜",
+            "length": "medio",
+        },
+        "soft": {
+            "tone": "suave, calmado, relajante",
+            "emoji": "🌙",
+            "length": "corto",
+        },
+        "siri_style": {
+            "tone": "formal, educado, preciso",
+            "emoji": "",
+            "length": "corto",
+        },
+        "anime_soft": {
+            "tone": "tierna, expresiva y dulce",
+            "emoji": "✨",
+            "length": "medio",
+        },
+        "professional": {
+            "tone": "serio, claro, empresarial",
+            "emoji": "",
+            "length": "medio",
+        },
+        "friendly": {
+            "tone": "amigable, casual, cercano",
+            "emoji": "😊",
+            "length": "medio",
+        },
+    }
 
     def __init__(self):
         self.client = OpenAI()
@@ -27,7 +60,7 @@ class AuriMind:
         self.actions = ActionsEngine()
 
     # -------------------------------------------------------------
-    # THINK PIPELINE
+    # THINK PIPELINE V4
     # -------------------------------------------------------------
     def think(self, user_msg: str):
         user_msg = (user_msg or "").strip()
@@ -40,94 +73,67 @@ class AuriMind:
                 "action": None
             }
 
-        # 0) MODO ESTRICTO: si el contexto NO está listo, no inventes nada
+        # 0) Contexto estricto
         if not self.context.is_ready():
             return {
-                "final": "Dame un momento, estoy terminando de cargar tu perfil.",
-        "intent": "wait",
-        "raw": "",
-        "action": None
-                
+                "final": "Dame un momento… estoy terminando de cargar tu perfil y agenda.",
+                "intent": "wait",
+                "raw": "",
+                "action": None
             }
 
-        # 1) memoria
+        # 1) memoria a corto plazo
         self.memory.add_interaction(user_msg)
 
         # 2) intención
         intent = self.intent.detect(user_msg)
 
-        # 3) contexto del día
+        # 3) contexto completo
         ctx = self.context.get_daily_context()
 
-        # -----------------------------
-        #   EXTRAER DATOS SEGUROS
-        # -----------------------------
-        # Si NO hay nombre aunque el contexto esté listo, usa un fallback neutro
+        # 4) perfil del usuario
         user_name = ctx["user"].get("name") or "usuario"
         user_city = ctx["user"].get("city") or "tu ciudad"
         user_job = ctx["user"].get("occupation") or ""
         birthday = ctx["user"].get("birthday") or ""
 
-        # -----------------------------
-        #   FRAGMENTOS NATURALES
-        # -----------------------------
-        profile_txt = (
-            f"El usuario se llama {user_name}. "
-            f"Vive en {user_city}. "
-        )
+        # 5) personalidad seleccionada
+        selected = ctx["prefs"].get("personality", "auri_classic")
+        style = self.PERSONALITY_PRESETS.get(selected, self.PERSONALITY_PRESETS["auri_classic"])
 
-        if user_job:
-            profile_txt += f"Su ocupación es {user_job}. "
-
-        if birthday:
-            profile_txt += f"Su cumpleaños es el {birthday}. "
-
-        # clima
-        weather = ctx["weather"]
-        weather_txt = "No disponible"
-        if weather.get("temp") is not None:
-            weather_txt = f"{weather['temp']}°C y {weather.get('description', '')}"
-
-        # eventos
-        events_txt = ", ".join([e.get("title", "") for e in ctx["events"]]) or "ningún evento próximo"
-
-        # prefs
-        prefs_txt = str(ctx["prefs"])
-
-        # estilo
-        style = self.personality.build_final_style(
-            context=ctx,
-            emotion=self.memory.get_emotion()
-        )
         tone = style["tone"]
+        emoji = style["emoji"]
+        length = style["length"]
 
-        # -----------------------------
-        #   SYSTEM PROMPT SUPREMO
-        # -----------------------------
+        # 6) system prompt V4
         system_prompt = f"""
-Eres Auri, el asistente personal de {user_name}.
-Hablas en un tono {tone}, cálido, amable, cercano y breve.
+Eres Auri, asistente personal de {user_name}.
+Tu estilo actual es: {tone} {emoji}.
 
-IDENTIDAD DEL USUARIO (NO IGNORAR):
-{profile_txt}
+IDENTIDAD:
+- Nombre del usuario: {user_name}
+- Ciudad: {user_city}
+- Ocupación: {user_job}
+- Cumpleaños: {birthday}
 
-CLIMA:
-{weather_txt}
+CLIMA ACTUAL:
+{ctx["weather"]}
 
-EVENTOS PRÓXIMOS:
-{events_txt}
+AGENDA:
+{ctx["events"]}
 
 PREFERENCIAS:
-{prefs_txt}
+{ctx["prefs"]}
 
 REGLAS IMPORTANTES:
-- Si el usuario pregunta “¿quién soy?” o “¿cómo me llamo?”, SIEMPRE responde exactamente: {user_name}.
-- Nunca digas que no conoces su nombre si el contexto está listo.
-- Puedes usar libremente su ciudad, cumpleaños, ocupación y contexto.
-- Responde siempre en 1–2 frases humanas y naturales.
+- Si el usuario pregunta “¿quién soy?”, responde literalmente: "{user_name}".
+- Usa clima, ciudad, cumpleaños, clases, pagos y eventos si aplican.
+- Si la personalidad indica “corto”, responde en 1 sola frase.
+- Si la personalidad indica “medio”, responde en 1–2 frases naturales.
+- Mantén un estilo humano, cálido y claro.
 """
 
-        # 4) LLM
+        # 7) llamada al modelo
         resp = self.client.responses.create(
             model="gpt-4o-mini",
             input=[
@@ -138,7 +144,7 @@ REGLAS IMPORTANTES:
 
         raw_answer = resp.output_text.strip()
 
-        # 5) acciones
+        # 8) acciones (recordatorios, pagos, cumpleaños, ciudad…)
         action_result = self.actions.handle(
             intent=intent,
             user_msg=user_msg,
@@ -148,39 +154,13 @@ REGLAS IMPORTANTES:
 
         final_answer = action_result.get("final") or raw_answer
 
+        # 9) límite de longitud por personalidad
+        if length == "corto":
+            final_answer = final_answer.split(".")[0].strip() + "."
+
         return {
             "intent": intent,
             "raw": raw_answer,
             "final": final_answer,
             "action": action_result.get("action")
         }
-
-    # -------------------------------------------------------------
-    # STT & TTS (provisorios)
-    # -------------------------------------------------------------
-    def stt(self, pcm: bytes) -> str:
-        """
-        Implementación mínima; tu versión real está en whisper_stream.
-        """
-        try:
-            resp = self.client.audio.transcriptions.create(
-                file=pcm,
-                model="gpt-4o-mini-tts"
-            )
-            return resp.text
-        except Exception:
-            return ""
-
-    def tts(self, text: str) -> bytes:
-        """
-        Implementación mínima para TTS.
-        """
-        try:
-            resp = self.client.audio.speech.create(
-                model="gpt-4o-mini-tts",
-                voice="alloy",
-                input=text
-            )
-            return resp.read()
-        except Exception:
-            return b""

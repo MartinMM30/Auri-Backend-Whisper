@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List
 
 
 class ContextEngine:
@@ -7,11 +7,7 @@ class ContextEngine:
     def __init__(self):
         self.memory = None
 
-        # ------- FLAG DE SINCRONIZACIÓN -------
-        self.ready: bool = False
-        self.last_sync: Optional[str] = None
-
-        # ------- DATOS CORE -------
+        # USER
         self.user = {
             "name": None,
             "city": None,
@@ -19,125 +15,100 @@ class ContextEngine:
             "occupation": None,
         }
 
-        # ------- CLIMA -------
+        # WEATHER
         self.weather = {
             "temp": None,
             "description": None,
-            "timestamp": None
+            "timestamp": None,
         }
 
-        # ------- EVENTOS / AGENDA -------
-        # Lista de:
-        # { "title": "...", "when": "ISO", "urgent": False }
-        self.events = []
+        # AGENDA
+        self.events: List[Dict[str, Any]] = []
+        self.classes: List[Dict[str, Any]] = []
+        self.exams: List[Dict[str, Any]] = []
+        self.birthdays: List[Dict[str, Any]] = []
+        self.payments: List[Dict[str, Any]] = []
 
-        # ------- PAGOS -------
-        # Lista de:
-        # { "title": "...", "amount": X, "due": "ISO" }
-        self.bills = []
-
-        # ------- PREFERENCIAS -------
+        # PREFS
         self.prefs = {
             "shortReplies": False,
             "softVoice": False,
             "personality": "auri_classic",
         }
 
-        # ------- ZONA HORARIA -------
+        # TIMEZONE
         self.tz = "UTC"
 
-    # ====================================================
-    # CONFIG
-    # ====================================================
+        # READY FLAG
+        self.ready_flag = False
+
+    # =====================================================
     def attach_memory(self, memory):
         self.memory = memory
 
-    # ====================================================
-    # READY MODE
-    # ====================================================
-    def mark_ready(self):
-        """Se llama cuando llega un context_sync completo desde Flutter."""
-        self.ready = True
-        self.last_sync = datetime.utcnow().isoformat()
-
-    def is_ready(self) -> bool:
-        return self.ready
-
-    # ====================================================
+    # =====================================================
     # SETTERS
-    # ====================================================
+    # =====================================================
     def set_weather(self, w):
         self.weather = {
             "temp": getattr(w, "temp", None),
             "description": getattr(w, "description", None),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.utcnow().isoformat(),
         }
 
-    def set_user(self, user_dict: Dict[str, Any]):
-        for key in ["name", "city", "birthday", "occupation"]:
-            if key in user_dict:
-                self.user[key] = user_dict[key]
+    def set_user(self, data: Dict[str, Any]):
+        for k in ["name", "city", "birthday", "occupation"]:
+            if k in data:
+                self.user[k] = data[k]
 
-    def set_events(self, events_list):
-        self.events = events_list or []
+    def set_events(self, events):
+        self.events = events or []
 
-    def set_bills(self, bills_list):
-        self.bills = bills_list or []
+    def set_classes(self, classes):
+        self.classes = classes or []
 
-    def set_prefs(self, prefs_dict):
-        for key in self.prefs.keys():
-            if key in prefs_dict:
-                self.prefs[key] = prefs_dict[key]
+    def set_exams(self, exams):
+        self.exams = exams or []
 
-    def update_timezone(self, tz: str):
+    def set_birthdays(self, bds):
+        self.birthdays = bds or []
+
+    def set_payments(self, payments):
+        self.payments = payments or []
+
+    def set_prefs(self, prefs):
+        for k in self.prefs.keys():
+            if k in prefs:
+                self.prefs[k] = prefs[k]
+
+    def update_timezone(self, tz):
         self.tz = tz
 
-    # ====================================================
-    # GETTERS
-    # ====================================================
-    def get_today_events(self):
-        from datetime import datetime as _dt
-        today = _dt.utcnow().date()
-        return [
-            e for e in self.events
-            if e.get("when") and _dt.fromisoformat(e["when"]).date() == today
-        ]
+    # =====================================================
+    # READY CONTROL
+    # =====================================================
+    def is_ready(self) -> bool:
+        return self.ready_flag
 
-    def get_upcoming_events(self):
-        from datetime import datetime as _dt
-        now = _dt.utcnow()
-        return [
-            e for e in self.events
-            if e.get("when") and _dt.fromisoformat(e["when"]) > now
-        ]
+    def mark_ready(self):
+        self.ready_flag = True
 
-    def get_due_bills(self):
-        from datetime import datetime as _dt
-        now = _dt.utcnow()
-        return [
-            b for b in self.bills
-            if b.get("due") and _dt.fromisoformat(b["due"]) >= now
-        ]
+    def invalidate(self):
+        self.ready_flag = False
 
-    # ====================================================
-    # CONTEXTO COMPLETO (para response / LLM)
-    # ====================================================
+    # =====================================================
+    # FINAL PAYLOAD (para LLM)
+    # =====================================================
     def get_daily_context(self):
         return {
             "user": self.user,
             "weather": self.weather,
             "events": self.events,
-            "bills": self.bills,
+            "classes": self.classes,
+            "exams": self.exams,
+            "birthdays": self.birthdays,
+            "payments": self.payments,
             "prefs": self.prefs,
             "timezone": self.tz,
-            "ready": self.ready,
-            "last_sync": self.last_sync,
+            "ready": self.ready_flag,
         }
-        
-    # Dentro de class ContextEngine:
-
-    def mark_ready(self):
-        self._ready = True
-
-    def is_ready(self):
-        return getattr(self, "_ready", False) is True
