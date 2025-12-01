@@ -81,7 +81,9 @@ async def realtime_socket(ws: WebSocket):
         logger.info("🔌 WS cerrado")
 
 
+# ============================================================
 # JSON COMMAND HANDLER
+# ============================================================
 async def handle_json(ws: WebSocket, session: RealtimeSession, msg: dict):
     t = msg.get("type")
 
@@ -105,7 +107,9 @@ async def handle_json(ws: WebSocket, session: RealtimeSession, msg: dict):
         await ws.send_json({"type": "pong"})
 
 
-# PIPELINE
+# ============================================================
+# PIPELINE STT → THINK → ACTION → TTS
+# ============================================================
 async def process_stt_tts(ws: WebSocket, session: RealtimeSession):
     if len(session.pcm_buffer) == 0:
         await ws.send_json({"type": "reply_final", "text": "No escuché nada."})
@@ -117,6 +121,9 @@ async def process_stt_tts(ws: WebSocket, session: RealtimeSession):
     wav.name = "audio.wav"
 
     try:
+        # -----------------------------
+        # STT
+        # -----------------------------
         stt = await client.audio.transcriptions.create(
             model=STT_MODEL,
             file=wav,
@@ -124,14 +131,23 @@ async def process_stt_tts(ws: WebSocket, session: RealtimeSession):
         text = (getattr(stt, "text", "") or "").strip()
         logger.info("📝 Texto STT: %s", text)
 
+        # -----------------------------
         # THINK
+        # -----------------------------
         think_res = auri.think(text)
         reply_text = think_res["final"] or think_res["raw"]
         action = think_res["action"]
 
         logger.info("🧠 Auri reply: %s", reply_text)
+
+        # -----------------------------
+        # TTS
+        # -----------------------------
         await send_tts(ws, reply_text)
 
+        # -----------------------------
+        # FIX: ENVÍO DE ACCIONES
+        # -----------------------------
         if action:
             await ws.send_json({
                 "type": "action",
@@ -153,6 +169,7 @@ async def process_text_only(ws: WebSocket, text: str):
 
     await send_tts(ws, reply_text)
 
+    # FIX: enviar acción
     if action:
         await ws.send_json({
             "type": "action",
@@ -161,8 +178,11 @@ async def process_text_only(ws: WebSocket, text: str):
         })
 
 
+# ============================================================
+# TTS STREAMING
+# ============================================================
 async def send_tts(ws: WebSocket, text: str, voice_id: str = "alloy"):
-    # Texto para la UI
+    # Texto para UI
     await ws.send_json({"type": "reply_partial", "text": text[:60]})
     await ws.send_json({"type": "reply_final", "text": text})
 
@@ -177,12 +197,9 @@ async def send_tts(ws: WebSocket, text: str, voice_id: str = "alloy"):
             async for chunk in resp.iter_bytes():
                 await ws.send_bytes(chunk)
 
-        # Avisar al cliente que terminó el audio
         await ws.send_json({"type": "tts_end"})
 
     except Exception as e:
         logger.exception("🔥 TTS error: %s", e)
         await ws.send_json({"type": "tts_error", "error": str(e)})
-        # Igual avisamos fin de TTS para que el cliente no se quede colgado
         await ws.send_json({"type": "tts_end"})
-
