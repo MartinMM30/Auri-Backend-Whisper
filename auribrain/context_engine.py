@@ -133,3 +133,11 @@ class ContextEngine:
             "ready": self.ready,
             "last_sync": self.last_sync,
         }
+        
+    # Dentro de class ContextEngine:
+
+    def mark_ready(self):
+        self._ready = True
+
+    def is_ready(self):
+        return getattr(self, "_ready", False) is True

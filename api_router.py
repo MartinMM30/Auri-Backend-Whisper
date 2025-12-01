@@ -2,6 +2,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 
+
 from auribrain.auri_mind import AuriMind
 
 router = APIRouter()
@@ -29,28 +30,51 @@ class _SimpleWeather:
 @router.post("/context/sync")
 async def context_sync(req: ContextUpdateRequest):
 
+
+
     print("\n================ CONTEXT SYNC RECIBIDO ================")
     print(req.dict())
     print("=======================================================\n")
 
+    # VALIDAR BLOQUES DEL PAYLOAD
+    blocks_ok = True
+
+    # WEATHER
     if req.weather:
         auri.context.set_weather(_SimpleWeather(
             req.weather.temp,
             req.weather.description,
         ))
+    else:
+        blocks_ok = False
 
-    if req.events:
+    # EVENTS
+    if req.events is not None:
         auri.context.set_events(req.events)
+    else:
+        blocks_ok = False
 
-    if req.user:
+    # USER
+    if req.user is not None and "name" in req.user:
         auri.context.set_user(req.user)
+    else:
+        blocks_ok = False
 
-    if req.prefs:
+    # PREFS
+    if req.prefs is not None:
         auri.context.set_prefs(req.prefs)
         if "personality" in req.prefs:
             auri.personality.set_personality(req.prefs["personality"])
+    else:
+        blocks_ok = False
 
-    # ✅ MODO ESTRICTO: marcamos que ya hay contexto listo
-    auri.context.mark_ready()
+    # ------------------------------------------
+    # SOLO MARCAR READY SI TODO EL PERFIL ESTÁ
+    # ------------------------------------------
+    if blocks_ok:
+        auri.context.mark_ready()
+        print("✔ CONTEXTO LISTO → ready = True")
+    else:
+        print("✘ CONTEXTO INCOMPLETO → ready = False")
 
     return {"ok": True}

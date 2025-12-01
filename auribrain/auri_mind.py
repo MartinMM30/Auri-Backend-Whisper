@@ -43,13 +43,11 @@ class AuriMind:
         # 0) MODO ESTRICTO: si el contexto NO está listo, no inventes nada
         if not self.context.is_ready():
             return {
-                "intent": "not_ready",
-                "raw": "",
-                "final": (
-                    "Dame un momento, estoy terminando de cargar tu perfil y agenda. "
-                    "Vuelve a hablarme en unos segundos."
-                ),
-                "action": None,
+                "final": "Dame un momento, estoy terminando de cargar tu perfil.",
+        "intent": "wait",
+        "raw": "",
+        "action": None
+                
             }
 
         # 1) memoria
