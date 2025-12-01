@@ -60,9 +60,10 @@ class ContextEngine:
         }
 
     def set_user(self, user_dict: Dict[str, Any]):
-        for key in ["name", "city", "birthday"]:
+        for key in ["name", "city", "birthday", "occupation"]:
             if key in user_dict:
                 self.user[key] = user_dict[key]
+
 
     def set_events(self, events_list):
         self.events = events_list or []

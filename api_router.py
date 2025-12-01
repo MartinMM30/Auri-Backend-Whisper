@@ -16,8 +16,10 @@ class WeatherIn(BaseModel):
 class ContextUpdateRequest(BaseModel):
     weather: Optional[WeatherIn] = None
     events: Optional[List[Dict[str, Any]]] = None
-    user: Optional[Dict[str, Any]] = None
+
+    user: Optional[Dict[str, Any]] = None  # acepta TODO el user de Flutter
     prefs: Optional[Dict[str, Any]] = None
+
 
 
 class _SimpleWeather:
