@@ -10,7 +10,7 @@ from auribrain.entity_extractor import EntityExtractor
 
 class AuriMind:
     """
-    Núcleo de inteligencia de Auri — Versión V3
+    Núcleo de inteligencia de Auri — Versión V3 (CON CONTEXTO REAL)
     """
 
     def __init__(self):
@@ -40,34 +40,45 @@ class AuriMind:
                 "action": None
             }
 
-        # 1) memorizar
+        # 1) memoria
         self.memory.add_interaction(user_msg)
 
-        # 2) detectar intención
+        # 2) intención
         intent = self.intent.detect(user_msg)
 
-        # 3) obtener contexto completo
+        # 3) CONTEXTO REAL
         ctx = self.context.get_daily_context()
 
-        # 4) personalidad final dinámica
-        personality_style = self.personality.build_final_style(
-            context=ctx,
-            emotion=self.memory.get_emotion()
+        # 4) personalidad dinámica
+        style = self.personality.build_final_style(context=ctx, emotion=self.memory.get_emotion())
+        tone = style["tone"]
+
+        # ---------------------------------------------------------
+        # CONTEXTO PARA EL PROMPT (nuevo)
+        # ---------------------------------------------------------
+        ctx_prompt = (
+            f"Nombre del usuario: {ctx['user'].get('name')}\n"
+            f"Ciudad: {ctx['user'].get('city')}\n"
+            f"Clima: {ctx['weather'].get('temp')}°C, {ctx['weather'].get('description')}\n"
+            f"Eventos del día: {ctx['events']}\n"
+            f"Pagos pendientes: {ctx['bills']}\n"
+            f"Preferencias: {ctx['prefs']}\n"
         )
 
-        tone = personality_style["tone"]
-
-        # 5) system prompt
+        # ---------------------------------------------------------
+        # 5) SYSTEM PROMPT
+        # ---------------------------------------------------------
         system_prompt = (
-            "Eres Auri, un asistente personal avanzado, natural y cercano. "
-            "Responde SIEMPRE en 1 o 2 frases como un humano real. "
-            "No menciones tus procesos, emociones internas o análisis. "
-            "No digas que estás pensando o procesando algo. "
-            "No repitas lo que dice el usuario. "
-            f"Habla con un tono {tone}. "
+            "Eres Auri, un asistente personal cálido, humano y cercano. "
+            f"Habla en un tono {tone}. "
+            "Responde siempre en 1 o 2 frases. "
+            "Nunca menciones tu proceso interno ni tu análisis. "
+            "Usa el contexto si es útil.\n\n"
+            f"--- CONTEXTO DEL USUARIO ---\n{ctx_prompt}\n"
+            "-----------------------------\n"
         )
 
-        # 6) llamada al modelo
+        # 6) LLM REQUEST
         resp = self.client.responses.create(
             model="gpt-4o-mini",
             input=[
@@ -78,7 +89,7 @@ class AuriMind:
 
         raw_answer = resp.output_text.strip()
 
-        # 7) ActionsEngine
+        # 7) Acciones
         action_result = self.actions.handle(
             intent=intent,
             user_msg=user_msg,
@@ -86,7 +97,6 @@ class AuriMind:
             memory=self.memory
         )
 
-        # 8) texto final
         final_answer = action_result.get("final") or raw_answer
 
         return {
