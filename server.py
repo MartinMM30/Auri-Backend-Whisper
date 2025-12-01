@@ -20,4 +20,4 @@ app.include_router(realtime_router)
 
 @app.get("/")
 def home():
-    return {"status": "Auri Backend OK", "version": "3.1"}
+    return {"status": "Auri Backend OK", "version": "3.8"}
