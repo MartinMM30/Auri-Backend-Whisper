@@ -1,5 +1,3 @@
-# auribrain/auri_mind.py
-
 from openai import OpenAI
 from auribrain.intent_engine import IntentEngine
 from auribrain.memory_engine import MemoryEngine
@@ -12,7 +10,7 @@ from auribrain.entity_extractor import EntityExtractor
 
 class AuriMind:
     """
-    Núcleo de inteligencia de Auri — Versión V3 (CON CONTEXTO REAL)
+    Núcleo de inteligencia de Auri — Versión V3.5 (CON PERFIL REAL)
     """
 
     def __init__(self):
@@ -39,7 +37,7 @@ class AuriMind:
                 "intent": "unknown",
                 "raw": "",
                 "final": "No logré escucharte bien, ¿puedes repetirlo?",
-                "action": None
+                "action": None,
             }
 
         # 1) memoria
@@ -51,57 +49,89 @@ class AuriMind:
         # 3) contexto del día
         ctx = self.context.get_daily_context()
 
-        # 4) estilo dinámico
+        # -----------------------------
+        #   EXTRAER DATOS SEGUROS
+        # -----------------------------
+        user_name = ctx["user"].get("name") or "amigo"
+        user_city = ctx["user"].get("city") or "tu ciudad"
+        user_job = ctx["user"].get("occupation") or ""
+        birthday = ctx["user"].get("birthday") or ""
+
+        # -----------------------------
+        #   FRAGMENTOS NATURALES
+        # -----------------------------
+        profile_txt = (
+            f"El usuario se llama {user_name}. "
+            f"Vive en {user_city}. "
+        )
+
+        if user_job:
+            profile_txt += f"Su ocupación es {user_job}. "
+
+        if birthday:
+            profile_txt += f"Su cumpleaños es el {birthday}. "
+
+        # clima
+        weather = ctx["weather"]
+        weather_txt = "No disponible"
+        if weather.get("temp"):
+            weather_txt = f"{weather['temp']}°C y {weather['description']}"
+
+        # eventos
+        events_txt = ", ".join([e["title"] for e in ctx["events"]]) or "ningún evento próximo"
+
+        # prefs
+        prefs_txt = str(ctx["prefs"])
+
+        # estilo dinámico
         style = self.personality.build_final_style(
-            context=ctx,
-            emotion=self.memory.get_emotion()
+            context=ctx, emotion=self.memory.get_emotion()
         )
         tone = style["tone"]
 
-        # 5) extra para el prompt
-        weather_txt = "No disponible"
-        if ctx["weather"].get("temp"):
-            weather_txt = f"{ctx['weather']['temp']}°C, {ctx['weather']['description']}"
+        # -----------------------------
+        #   SYSTEM PROMPT SUPREMO
+        # -----------------------------
+        system_prompt = f"""
+Eres Auri, el asistente personal de {user_name}.
+Hablas en un tono {tone}, cálido, amable, cercano y breve.
 
-        ctx_prompt = (
-            f"Nombre: {ctx['user'].get('name')}\n"
-            f"Ciudad: {ctx['user'].get('city')}\n"
-            f"Clima: {weather_txt}\n"
-            f"Eventos: {ctx['events']}\n"
-            f"Pagos: {ctx['bills']}\n"
-            f"Preferencias: {ctx['prefs']}\n"
-        )
+IDENTIDAD DEL USUARIO (NO IGNORAR):
+{profile_txt}
 
-        system_prompt = (
-    "Eres Auri, un asistente personal cálido, natural y cercano. "
-    f"Habla en un tono {tone}. "
-    "Responde siempre corto y humano.\n\n"
-    "IMPORTANTE:\n"
-    f"- El nombre del usuario es: {ctx['user'].get('name')}\n"
-    "- Siempre que te pregunte quién es, RESPONDE ese nombre.\n"
-    "- No digas que no sabes su identidad si ya está en el contexto.\n"
-    "- Puedes usar esta información sin pedir permiso.\n\n"
-    f"--- CONTEXTO ---\n{ctx_prompt}\n"
-)
+CLIMA:
+{weather_txt}
 
+EVENTOS PRÓXIMOS:
+{events_txt}
 
-        # 6) LLM
+PREFERENCIAS:
+{prefs_txt}
+
+REGLAS IMPORTANTES:
+- Si el usuario pregunta “¿quién soy?” o “¿cómo me llamo?”, SIEMPRE responde: {user_name}.
+- Nunca digas que no conoces su nombre.
+- Puedes usar libremente su ciudad, cumpleaños, ocupación y contexto.
+- Responde siempre en 1–2 frases humanas, cálidas y naturales.
+"""
+
+        # 5) LLM
         resp = self.client.responses.create(
             model="gpt-4o-mini",
             input=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_msg},
-            ]
+            ],
         )
 
         raw_answer = resp.output_text.strip()
 
-        # 7) acciones
+        # 6) acciones
         action_result = self.actions.handle(
             intent=intent,
             user_msg=user_msg,
             context=ctx,
-            memory=self.memory
+            memory=self.memory,
         )
 
         final_answer = action_result.get("final") or raw_answer
@@ -110,7 +140,7 @@ class AuriMind:
             "intent": intent,
             "raw": raw_answer,
             "final": final_answer,
-            "action": action_result.get("action")
+            "action": action_result.get("action"),
         }
 
     # -------------------------------------------------------------
@@ -123,7 +153,7 @@ class AuriMind:
         try:
             resp = self.client.audio.transcriptions.create(
                 file=pcm,
-                model="gpt-4o-mini-tts"
+                model="gpt-4o-mini-tts",
             )
             return resp.text
         except:
@@ -137,7 +167,7 @@ class AuriMind:
             resp = self.client.audio.speech.create(
                 model="gpt-4o-mini-tts",
                 voice="alloy",
-                input=text
+                input=text,
             )
             return resp.read()
         except:
