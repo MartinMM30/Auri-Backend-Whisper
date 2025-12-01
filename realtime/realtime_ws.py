@@ -180,17 +180,19 @@ async def process_text_only(ws: WebSocket, user_text: str):
 
 async def think_with_auri(user_text: str) -> dict:
     try:
-        result = auri.think(user_text) or {}
+        result = auri.think(user_text)
+        if not isinstance(result, dict):
+            result = {}
 
         reply = (result.get("final") or result.get("raw") or "").strip()
         action = result.get("action")
 
-        logger.info("🧠 Auri: %s", reply)
         return {"text": reply, "action": action}
 
     except Exception as e:
         logger.exception("🔥 Error en AuriMind: %s", e)
         return {"text": "Tuve un problema interno.", "action": None}
+
 
 
 async def send_tts_reply(ws: WebSocket, reply_text: str, action: dict | None):

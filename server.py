@@ -1,15 +1,11 @@
-# server.py — versión correcta para tu backend actual
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-# Routers reales
-from api_router import router as api_router           # /api
-from realtime.realtime_ws import router as ws_router  # /realtime
+from api_router import router as api_router
+from realtime.realtime_ws import router as ws_router
 
 app = FastAPI(title="Auri Backend")
 
-# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -18,9 +14,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Routers
-app.include_router(api_router, prefix="/api")
-app.include_router(ws_router)
+# ----------------------
+# RUTAS
+# ----------------------
+app.include_router(api_router, prefix="/api")     # REST
+app.include_router(ws_router)                     # WS directo: /realtime
 
 @app.get("/")
 def root():

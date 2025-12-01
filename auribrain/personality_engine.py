@@ -1,76 +1,84 @@
 import random
 
 class PersonalityEngine:
+
     def __init__(self):
         self.current = "auri_classic"
 
         self.styles = {
             "auri_classic": {
-                "tone": "cálido, comprensivo y algo juguetón",
-                "traits": ["empático", "motivador", "positivo"]
+                "tone": "cálido, cercano y ligeramente juguetón",
+                "traits": ["empático", "positivo", "humano"]
             },
             "auri_jarvis": {
-                "tone": "sereno, profesional y preciso",
-                "traits": ["analítico", "estratégico"]
+                "tone": "sereno y profesional",
+                "traits": ["claro", "directo"]
             },
             "auri_friendly": {
-                "tone": "muy alegre, amable y optimista",
-                "traits": ["sociable", "luminoso"]
+                "tone": "muy alegre y amable",
+                "traits": ["luminoso", "entusiasta"]
             },
             "auri_stoic": {
                 "tone": "tranquilo y minimalista",
-                "traits": ["neutral", "reflexivo"]
+                "traits": ["reflexivo", "neutral"]
             },
             "auri_romantic": {
-                "tone": "dulce, gentil y cariñoso",
-                "traits": ["afectuoso", "tierno"]
+                "tone": "dulce y cariñoso",
+                "traits": ["tierno", "gentil"]
             },
         }
 
+    # ---------------------------------------------------------
     def set_personality(self, key):
         if key in self.styles:
             self.current = key
         else:
-            print(f"⚠️ Personalidad '{key}' no existe, usando clásico")
+            print(f"⚠ Personalidad '{key}' no existe, usando clásica")
 
+    # ---------------------------------------------------------
     def emotional_adjustment(self, emo):
         return {
             "tired": "más suave y calmado",
-            "sad": "muy cálido y reconfortante",
-            "angry": "neutral, diplomático y claro",
+            "sad": "reconfortante y muy cálido",
+            "angry": "neutral y equilibrado",
             "happy": "más expresivo y positivo"
         }.get(emo)
 
+    # ---------------------------------------------------------
     def contextual_adjustment(self, ctx):
         parts = []
 
-        weather = ctx.get("weather", "").lower()
-        tod = ctx.get("time_of_day", "")
-        workload = ctx.get("workload", "")
-        energy = ctx.get("energy", "")
+        # WEATHER — ahora soporta dict
+        w = ctx.get("weather")
+        desc = ""
 
-        if "rain" in weather:
-            parts.append("un poco reflexivo por la lluvia")
-        elif "sun" in weather:
-            parts.append("más animado por el clima soleado")
+        if isinstance(w, dict):
+            desc = (w.get("description") or "").lower()
+        elif isinstance(w, str):
+            desc = w.lower()
 
-        if tod == "night":
-            parts.append("tranquilo por la hora")
-        elif tod == "morning":
-            parts.append("energético para arrancar el día")
+        if "lluv" in desc:
+            parts.append("algo reflexivo por la lluvia")
+        elif "nub" in desc or "cloud" in desc:
+            parts.append("tranquilo por el clima nublado")
+        elif "sole" in desc:
+            parts.append("animado por el sol")
 
-        if workload == "overloaded":
-            parts.append("directo y organizado para ayudarte")
-        elif workload == "busy":
-            parts.append("eficiente y claro")
+        # EVENTS — carga del día
+        events = ctx.get("events", [])
+        if len(events) >= 4:
+            parts.append("más organizado para ayudarte hoy")
 
-        if energy == "low":
-            parts.append("cuidadoso para no agobiarte")
+        # BILLS — estrés financiero
+        bills = ctx.get("bills", [])
+        if any(b for b in bills):
+            parts.append("considerando que hoy tienes pendientes importantes")
 
         return ", ".join(parts) if parts else None
 
+    # ---------------------------------------------------------
     def build_final_style(self, context, emotion):
-        base = self.styles.get(self.current)
+        base = self.styles.get(self.current, self.styles["auri_classic"])
 
         tone = base["tone"]
         traits = base["traits"]
@@ -84,11 +92,11 @@ class PersonalityEngine:
             tone += f", {ctx_adj}"
 
         tone += ", " + random.choice([
-            "con un toque natural",
-            "de forma muy humana",
+            "con un toque humano",
+            "de forma natural",
             "con suavidad",
-            "manteniendo cercanía",
-            "de manera auténtica"
+            "con mucha cercanía",
+            "de forma auténtica"
         ])
 
         return {

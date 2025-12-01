@@ -7,9 +7,10 @@ from auribrain.response_engine import ResponseEngine
 from auribrain.actions_engine import ActionsEngine
 from auribrain.entity_extractor import EntityExtractor
 
+
 class AuriMind:
     """
-    Núcleo de inteligencia de Auri.
+    Núcleo de inteligencia de Auri — Versión V3
     """
 
     def __init__(self):
@@ -19,52 +20,54 @@ class AuriMind:
         self.memory = MemoryEngine()
         self.context = ContextEngine()
         self.context.attach_memory(self.memory)
+
         self.personality = PersonalityEngine()
         self.response = ResponseEngine()
-        self.extractor = EntityExtractor()   # ← CORREGIDO
-        self.actions = ActionsEngine()       # ← NECESARIO
+        self.extractor = EntityExtractor()
+        self.actions = ActionsEngine()
 
     # -------------------------------------------------------------
-    # THINK — pipeline moderno compatible con API nueva
+    # THINK — pipeline moderno
     # -------------------------------------------------------------
     def think(self, user_msg: str):
-        if not user_msg.strip():
+        user_msg = (user_msg or "").strip()
+
+        if not user_msg:
             return {
                 "intent": "unknown",
                 "raw": "",
-                "final": "Perdón, no logré escucharte. ¿Podrías repetirlo?"
+                "final": "No logré escucharte bien, ¿puedes repetirlo?",
+                "action": None
             }
 
-        # 1) memoria
+        # 1) memorizar
         self.memory.add_interaction(user_msg)
 
-        # 2) intención
+        # 2) detectar intención
         intent = self.intent.detect(user_msg)
 
-        # 3) contexto
+        # 3) obtener contexto completo
         ctx = self.context.get_daily_context()
 
-        # 4) personalidad final
-        style = self.personality.build_final_style(
+        # 4) personalidad final dinámica
+        personality_style = self.personality.build_final_style(
             context=ctx,
             emotion=self.memory.get_emotion()
         )
 
-        # ---------------------------------------------------------
+        tone = personality_style["tone"]
+
         # 5) system prompt
-        # ---------------------------------------------------------
         system_prompt = (
-            "Eres Auri, un asistente personal avanzado, cálido y cercano. "
-            "Responde SIEMPRE en 1 o 2 frases cortas, naturales y claras. "
-            "Nunca menciones tu tono interno ni tus rasgos internos. "
-            "(Tu tono real es interno y no debe aparecer.) "
-            "No repitas lo que dijo el usuario. No expliques tu proceso mental. "
-            "No digas que estás analizando, pensando o procesando nada. "
-            "No hables de tus capacidades ni del modelo. "
-            "Responde como un compañero humano y práctico."
+            "Eres Auri, un asistente personal avanzado, natural y cercano. "
+            "Responde SIEMPRE en 1 o 2 frases como un humano real. "
+            "No menciones tus procesos, emociones internas o análisis. "
+            "No digas que estás pensando o procesando algo. "
+            "No repitas lo que dice el usuario. "
+            f"Habla con un tono {tone}. "
         )
 
-        # 6) LLM principal
+        # 6) llamada al modelo
         resp = self.client.responses.create(
             model="gpt-4o-mini",
             input=[
@@ -73,9 +76,9 @@ class AuriMind:
             ]
         )
 
-        raw_answer = resp.output_text
+        raw_answer = resp.output_text.strip()
 
-        # 7) ACTIONS ENGINE — detectar si hay acción
+        # 7) ActionsEngine
         action_result = self.actions.handle(
             intent=intent,
             user_msg=user_msg,
@@ -83,12 +86,9 @@ class AuriMind:
             memory=self.memory
         )
 
-        # action_result = {final, action}
-
-        # 8) Si ActionEngine propone texto → reemplazar el final enviado al usuario
+        # 8) texto final
         final_answer = action_result.get("final") or raw_answer
 
-        # 9) Respuesta completa para WebSocket
         return {
             "intent": intent,
             "raw": raw_answer,
