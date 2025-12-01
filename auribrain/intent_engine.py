@@ -1,130 +1,65 @@
-import json
-import logging
-from openai import OpenAI
+# auribrain/intent_engine.py
 
-logger = logging.getLogger("uvicorn.error")
+from openai import OpenAI
+import logging
+
+logger = logging.getLogger(__name__)
 
 class IntentEngine:
-    def __init__(self, client: OpenAI = None):
-        self.client = client or OpenAI()
+
+    def __init__(self, client: OpenAI):
+        self.client = client
 
     # ================================================================
-    # SAFE JSON
+    # RULE-BASED (robusto y ultra rápido)
     # ================================================================
-    def _safe_json(self, text: str) -> dict:
-        try:
-            return json.loads(text)
-        except Exception:
-            logger.error("[IntentEngine] JSON inválido recibido: %s", text)
-            return {}
+    def _rule_based(self, text: str):
+        if not text:
+            return None
 
-    # ================================================================
-    # REGLAS PRINCIPALES (rápido + barato)
-    # ================================================================
-    def _rule_based(self, t):
-        t = t.lower()
+        t = text.lower()
 
-        # ------------------------------
-        # 🔵 REMINDER.QUERY
-        # ------------------------------
-        if any(k in t for k in [
-            "mis recordatorios",
-            "qué recordatorios tengo",
-            "que recordatorios tengo",
-            "lista de recordatorios",
-            "muéstrame mis recordatorios",
-            "mostrar recordatorios",
-            "ver recordatorios",
-            "recordatorios de hoy",
-            "recordatorios pendientes",
+        # --- DELETE REMINDER ---
+        if any(w in t for w in [
+            "borra", "borrar", "elimina", "eliminar",
+            "quita", "quitar", "remueve", "remover",
+            "suprime", "suprimir"
         ]):
-            return "reminder.query"
+            return "reminder.remove"
 
-        # ------------------------------
-        # 🔵 REMINDER.CREATE
-        # ------------------------------
-        if any(k in t for k in [
-            "recorda ", "recuérdame", "recuerdame",
-            "pon un recordatorio",
-            "crea un recordatorio",
-            "agrega un recordatorio",
-            "anota que",
-            "recuerda que",
-            "haz un recordatorio",
+        # --- CREATE REMINDER ---
+        if any(w in t for w in [
+            "recordatorio", "recuérdame", "recuerdame",
+            "crea", "crear", "programa", "agenda esto",
+            "anota", "agéndame", "agendame"
         ]):
             return "reminder.create"
 
-        # ------------------------------
-        # 🔵 REMINDER.DELETE
-        # ------------------------------
-        if "quita" in t and "recordatorio" in t:
-            return "reminder.remove"
-
-        # ------------------------------
-        # 🔵 WEATHER
-        # ------------------------------
-        if any(k in t for k in ["clima", "temperatura", "tiempo"]):
-            return "weather.query"
-
-        # ------------------------------
-        # 🔵 OUTFIT
-        # ------------------------------
-        if any(k in t for k in ["outfit", "qué me pongo", "que me pongo", "ropa"]):
-            return "outfit.suggest"
-
-        # ------------------------------
-        # 🔵 USER STATE
-        # ------------------------------
-        if any(k in t for k in ["cómo estoy", "como estoy", "cómo me ves", "como me ves"]):
-            return "user.state"
-
-        # ------------------------------
-        # 🔵 CONFIG AURI
-        # ------------------------------
-        if any(k in t for k in ["personalidad", "tu voz"]):
-            return "auri.config"
-
-        # ------------------------------
-        # 🔵 EMOTION SUPPORT
-        # ------------------------------
-        if any(k in t for k in ["estoy triste", "estresado", "ansioso"]):
-            return "emotion.support"
-
-        # ------------------------------
-        # 🔵 GREETING
-        # ------------------------------
-        if any(k in t for k in ["hola", "buenos días", "buenas tardes", "buenas noches"]):
-            return "smalltalk.greeting"
-
-        # ------------------------------
-        # 🔵 JOKE
-        # ------------------------------
-        if any(k in t for k in ["chiste", "divertido"]):
-            return "fun.joke"
+        # --- QUERY REMINDERS ---
+        if any(w in t for w in [
+            "qué recordatorios tengo",
+            "mis recordatorios",
+            "ver recordatorios",
+            "lista de recordatorios"
+        ]):
+            return "reminder.query"
 
         return None
 
     # ================================================================
-    # LLM fallback
+    # LLM FALLBACK
     # ================================================================
-    def _llm(self, text):
+    def _llm(self, text: str):
         prompt = f"""
-Clasifica el siguiente mensaje EN SOLO UNO de estos intents:
+Clasifica este mensaje en un intent.
 
+Opciones:
 - reminder.create
 - reminder.remove
 - reminder.query
-- weather.query
-- outfit.suggest
-- knowledge.query
-- smalltalk.greeting
-- fun.joke
-- user.state
-- emotion.support
-- auri.config
 - conversation.general
 
-Ejemplo:
+Ejemplos:
 "qué recordatorios tengo" → reminder.query
 "recuérdame tomar agua mañana" → reminder.create
 "quita el recordatorio de agua" → reminder.remove
@@ -140,7 +75,7 @@ Responde SOLO el nombre del intent.
                 model="gpt-4o-mini",
                 input=[
                     {"role": "system", "content": "Eres un clasificador experto. Solo responde un intent."},
-                    {"role": "user", "content": prompt},
+                    {"role": "user", "content": prompt}
                 ]
             )
             return resp.output_text.strip()
@@ -151,9 +86,11 @@ Responde SOLO el nombre del intent.
     # ================================================================
     # ENTRADA PRINCIPAL
     # ================================================================
-    def detect(self, text):
+    def detect(self, text: str):
+        # 1) Primero reglas (rápido y 100% confiable)
         rule = self._rule_based(text)
         if rule:
             return rule
 
+        # 2) Fallback al LLM
         return self._llm(text)
