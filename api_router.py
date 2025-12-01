@@ -16,10 +16,8 @@ class WeatherIn(BaseModel):
 class ContextUpdateRequest(BaseModel):
     weather: Optional[WeatherIn] = None
     events: Optional[List[Dict[str, Any]]] = None
-
     user: Optional[Dict[str, Any]] = None  # acepta TODO el user de Flutter
     prefs: Optional[Dict[str, Any]] = None
-
 
 
 class _SimpleWeather:
@@ -51,5 +49,8 @@ async def context_sync(req: ContextUpdateRequest):
         auri.context.set_prefs(req.prefs)
         if "personality" in req.prefs:
             auri.personality.set_personality(req.prefs["personality"])
+
+    # ✅ MODO ESTRICTO: marcamos que ya hay contexto listo
+    auri.context.mark_ready()
 
     return {"ok": True}

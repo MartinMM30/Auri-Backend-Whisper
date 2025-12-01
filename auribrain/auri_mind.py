@@ -10,7 +10,7 @@ from auribrain.entity_extractor import EntityExtractor
 
 class AuriMind:
     """
-    Núcleo de inteligencia de Auri — Versión V3.5 (CON PERFIL REAL)
+    Núcleo de inteligencia de Auri — Versión V3.5 (CON CONTEXTO ESTRICTO)
     """
 
     def __init__(self):
@@ -37,6 +37,18 @@ class AuriMind:
                 "intent": "unknown",
                 "raw": "",
                 "final": "No logré escucharte bien, ¿puedes repetirlo?",
+                "action": None
+            }
+
+        # 0) MODO ESTRICTO: si el contexto NO está listo, no inventes nada
+        if not self.context.is_ready():
+            return {
+                "intent": "not_ready",
+                "raw": "",
+                "final": (
+                    "Dame un momento, estoy terminando de cargar tu perfil y agenda. "
+                    "Vuelve a hablarme en unos segundos."
+                ),
                 "action": None,
             }
 
@@ -52,6 +64,7 @@ class AuriMind:
         # -----------------------------
         #   EXTRAER DATOS SEGUROS
         # -----------------------------
+        # Si NO hay nombre aunque el contexto esté listo, usa un fallback neutro
         user_name = ctx["user"].get("name") or "usuario"
         user_city = ctx["user"].get("city") or "tu ciudad"
         user_job = ctx["user"].get("occupation") or ""
@@ -74,18 +87,19 @@ class AuriMind:
         # clima
         weather = ctx["weather"]
         weather_txt = "No disponible"
-        if weather.get("temp"):
-            weather_txt = f"{weather['temp']}°C y {weather['description']}"
+        if weather.get("temp") is not None:
+            weather_txt = f"{weather['temp']}°C y {weather.get('description', '')}"
 
         # eventos
-        events_txt = ", ".join([e["title"] for e in ctx["events"]]) or "ningún evento próximo"
+        events_txt = ", ".join([e.get("title", "") for e in ctx["events"]]) or "ningún evento próximo"
 
         # prefs
         prefs_txt = str(ctx["prefs"])
 
-        # estilo dinámico
+        # estilo
         style = self.personality.build_final_style(
-            context=ctx, emotion=self.memory.get_emotion()
+            context=ctx,
+            emotion=self.memory.get_emotion()
         )
         tone = style["tone"]
 
@@ -109,29 +123,29 @@ PREFERENCIAS:
 {prefs_txt}
 
 REGLAS IMPORTANTES:
-- Si el usuario pregunta “¿quién soy?” o “¿cómo me llamo?”, SIEMPRE responde: {user_name}.
-- Nunca digas que no conoces su nombre.
-- Usa libremente su ciudad, cumpleaños, ocupación y contexto.
+- Si el usuario pregunta “¿quién soy?” o “¿cómo me llamo?”, SIEMPRE responde exactamente: {user_name}.
+- Nunca digas que no conoces su nombre si el contexto está listo.
+- Puedes usar libremente su ciudad, cumpleaños, ocupación y contexto.
 - Responde siempre en 1–2 frases humanas y naturales.
 """
 
-        # 5) LLM
+        # 4) LLM
         resp = self.client.responses.create(
             model="gpt-4o-mini",
             input=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_msg},
-            ],
+            ]
         )
 
         raw_answer = resp.output_text.strip()
 
-        # 6) acciones
+        # 5) acciones
         action_result = self.actions.handle(
             intent=intent,
             user_msg=user_msg,
             context=ctx,
-            memory=self.memory,
+            memory=self.memory
         )
 
         final_answer = action_result.get("final") or raw_answer
@@ -140,5 +154,35 @@ REGLAS IMPORTANTES:
             "intent": intent,
             "raw": raw_answer,
             "final": final_answer,
-            "action": action_result.get("action"),
+            "action": action_result.get("action")
         }
+
+    # -------------------------------------------------------------
+    # STT & TTS (provisorios)
+    # -------------------------------------------------------------
+    def stt(self, pcm: bytes) -> str:
+        """
+        Implementación mínima; tu versión real está en whisper_stream.
+        """
+        try:
+            resp = self.client.audio.transcriptions.create(
+                file=pcm,
+                model="gpt-4o-mini-tts"
+            )
+            return resp.text
+        except Exception:
+            return ""
+
+    def tts(self, text: str) -> bytes:
+        """
+        Implementación mínima para TTS.
+        """
+        try:
+            resp = self.client.audio.speech.create(
+                model="gpt-4o-mini-tts",
+                voice="alloy",
+                input=text
+            )
+            return resp.read()
+        except Exception:
+            return b""
