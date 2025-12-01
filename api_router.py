@@ -23,6 +23,16 @@ class ContextUpdateRequest(BaseModel):
     user: Optional[Dict[str, Any]] = None
     prefs: Optional[Dict[str, Any]] = None
 
+    # 🔥 Nuevos campos críticos
+    timezone: Optional[str] = None
+    current_time_iso: Optional[str] = None
+    current_time_pretty: Optional[str] = None
+    current_date_pretty: Optional[str] = None
+
+    class Config:
+        extra = "allow"
+
+
 class _SimpleWeather:
     def __init__(self, temp, description):
         self.temp = temp
@@ -40,14 +50,13 @@ async def context_sync(req: ContextUpdateRequest):
 
     ctx = auri.context
     ctx.invalidate()
-
     blocks_ok = True
 
     # WEATHER
     if req.weather:
-      ctx.set_weather(_SimpleWeather(req.weather.temp, req.weather.description))
+        ctx.set_weather(_SimpleWeather(req.weather.temp, req.weather.description))
     else:
-      blocks_ok = False
+        blocks_ok = False
 
     # EVENTS
     if req.events is not None:
@@ -55,7 +64,29 @@ async def context_sync(req: ContextUpdateRequest):
     else:
         blocks_ok = False
 
-    # ... resto igual ...
+    # CLASSES
+    if req.classes is not None:
+        ctx.set_classes(req.classes)
+    else:
+        blocks_ok = False
+
+    # EXAMS
+    if req.exams is not None:
+        ctx.set_exams(req.exams)
+    else:
+        blocks_ok = False
+
+    # BIRTHDAYS
+    if req.birthdays is not None:
+        ctx.set_birthdays(req.birthdays)
+    else:
+        blocks_ok = False
+
+    # PAYMENTS
+    if req.payments is not None:
+        ctx.set_payments(req.payments)
+    else:
+        blocks_ok = False
 
     # USER
     if req.user and "name" in req.user:
@@ -71,25 +102,21 @@ async def context_sync(req: ContextUpdateRequest):
     else:
         blocks_ok = False
 
-    # 🔹 NUEVO: TIMEZONE + HORA ACTUAL
-    if req.timezone:
-        try:
-            ctx.set_timezone(req.timezone)
-        except AttributeError:
-            # Si aún no tienes este método, puedes simplemente guardar en un dict interno
-            ctx.extra["timezone"] = req.timezone
+    # ------------------------------
+    # 🔹 NUEVO: TIMEZONE + HORA LOCAL
+    # ------------------------------
 
+    # TIMEZONE
+    if req.timezone:
+        ctx.set_timezone(req.timezone)
+
+    # TIME INFO
     if req.current_time_iso or req.current_time_pretty or req.current_date_pretty:
-        try:
-            ctx.set_time_info(
-                iso=req.current_time_iso,
-                pretty=req.current_time_pretty,
-                date=req.current_date_pretty,
-            )
-        except AttributeError:
-            ctx.extra["current_time_iso"] = req.current_time_iso
-            ctx.extra["current_time_pretty"] = req.current_time_pretty
-            ctx.extra["current_date_pretty"] = req.current_date_pretty
+        ctx.set_time_info(
+            iso=req.current_time_iso,
+            pretty=req.current_time_pretty,
+            date=req.current_date_pretty
+        )
 
     # READY CHECK
     if blocks_ok:

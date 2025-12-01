@@ -36,8 +36,13 @@ class ContextEngine:
             "personality": "auri_classic",
         }
 
-        # TIMEZONE
+        # TIMEZONE (🔥 requerido por Auri)
         self.tz = "UTC"
+
+        # HORA LOCAL DEL DISPOSITIVO
+        self.current_time_iso = None
+        self.current_time_pretty = None
+        self.current_date_pretty = None
 
         # READY FLAG
         self.ready_flag = False
@@ -81,8 +86,17 @@ class ContextEngine:
             if k in prefs:
                 self.prefs[k] = prefs[k]
 
-    def update_timezone(self, tz):
+    # 🔥 NUEVOS SETTERS IMPORTANTES
+    def set_timezone(self, tz: str):
         self.tz = tz
+
+    def set_time_info(self, iso=None, pretty=None, date=None):
+        if iso:
+            self.current_time_iso = iso
+        if pretty:
+            self.current_time_pretty = pretty
+        if date:
+            self.current_date_pretty = date
 
     # =====================================================
     # READY CONTROL
@@ -97,7 +111,7 @@ class ContextEngine:
         self.ready_flag = False
 
     # =====================================================
-    # FINAL PAYLOAD (para LLM)
+    # FINAL PAYLOAD (para el LLM)
     # =====================================================
     def get_daily_context(self):
         return {
@@ -109,6 +123,12 @@ class ContextEngine:
             "birthdays": self.birthdays,
             "payments": self.payments,
             "prefs": self.prefs,
+
+            # 🔥 CAMPOS NUEVOS
             "timezone": self.tz,
+            "current_time_iso": self.current_time_iso,
+            "current_time_pretty": self.current_time_pretty,
+            "current_date_pretty": self.current_date_pretty,
+
             "ready": self.ready_flag,
         }
