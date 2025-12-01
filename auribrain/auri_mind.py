@@ -73,11 +73,17 @@ class AuriMind:
         )
 
         system_prompt = (
-            "Eres Auri, un asistente personal cálido, natural y cercano. "
-            f"Habla en un tono {tone}. "
-            "Responde siempre corto y humano.\n\n"
-            f"--- CONTEXTO ---\n{ctx_prompt}\n"
-        )
+    "Eres Auri, un asistente personal cálido, natural y cercano. "
+    f"Habla en un tono {tone}. "
+    "Responde siempre corto y humano.\n\n"
+    "IMPORTANTE:\n"
+    f"- El nombre del usuario es: {ctx['user'].get('name')}\n"
+    "- Siempre que te pregunte quién es, RESPONDE ese nombre.\n"
+    "- No digas que no sabes su identidad si ya está en el contexto.\n"
+    "- Puedes usar esta información sin pedir permiso.\n\n"
+    f"--- CONTEXTO ---\n{ctx_prompt}\n"
+)
+
 
         # 6) LLM
         resp = self.client.responses.create(
