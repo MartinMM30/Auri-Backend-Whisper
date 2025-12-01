@@ -2,19 +2,16 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 
-from auribrain.auri_mind import AuriMind
+from auribrain.auri_singleton import auri
 from realtime.realtime_broadcast import realtime_broadcast
 
 router = APIRouter()
-auri = AuriMind()
-
 
 # ================== MODELOS ==================
 
 class WeatherIn(BaseModel):
     temp: float
     description: str
-
 
 class ContextUpdateRequest(BaseModel):
     weather: Optional[WeatherIn] = None
@@ -26,8 +23,6 @@ class ContextUpdateRequest(BaseModel):
     user: Optional[Dict[str, Any]] = None
     prefs: Optional[Dict[str, Any]] = None
 
-
-# Simple adapter
 class _SimpleWeather:
     def __init__(self, temp, description):
         self.temp = temp
@@ -38,12 +33,13 @@ class _SimpleWeather:
 
 @router.post("/context/sync")
 async def context_sync(req: ContextUpdateRequest):
+
     print("\n================ CONTEXT SYNC RECIBIDO ================")
     print(req.dict())
     print("=======================================================\n")
 
     ctx = auri.context
-    ctx.invalidate()  # siempre invalidamos antes de validar
+    ctx.invalidate()
 
     blocks_ok = True
 
@@ -96,13 +92,13 @@ async def context_sync(req: ContextUpdateRequest):
             auri.personality.set_personality(req.prefs["personality"])
     else:
         blocks_ok = False
-    
+
 
     # READY CHECK
     if blocks_ok:
-        auri.context.mark_ready()
-        await realtime_broadcast.broadcast({"type": "context_ready"})
+        ctx.mark_ready()
         print("✔ CONTEXTO COMPLETO — ready = True")
+        await realtime_broadcast.broadcast({"type": "context_ready"})
     else:
         print("✘ CONTEXTO INCOMPLETO — ready = False")
 
