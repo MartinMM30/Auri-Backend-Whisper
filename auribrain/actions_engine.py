@@ -1,6 +1,7 @@
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Optional
 from auribrain.entity_extractor import EntityExtractor, ExtractedReminder
+
 
 class ActionsEngine:
     """
@@ -29,9 +30,13 @@ class ActionsEngine:
     # ==============================================================
     def _handle_create_reminder(self, user_msg: str):
         now = datetime.utcnow()
-        parsed: Optional[ExtractedReminder] = self.extractor.extract_reminder(
-            user_msg, now=now
-        )
+
+        try:
+            parsed: Optional[ExtractedReminder] = self.extractor.extract_reminder(
+                user_msg, now=now
+            )
+        except Exception:
+            parsed = None
 
         if not parsed:
             return {
@@ -41,7 +46,7 @@ class ActionsEngine:
 
         if not parsed.datetime:
             return {
-                "final": f"Entendí que deseas recordar “{parsed.title}”. ¿Me dices para cuándo?",
+                "final": f"Entendí que deseas recordar “{parsed.title}”. ¿Para qué día y hora lo programo?",
                 "action": None
             }
 
@@ -62,24 +67,76 @@ class ActionsEngine:
         }
 
     # ==============================================================
-    # DELETE REMINDER
+    # DELETE REMINDER (MEGA FIX)
     # ==============================================================
     def _handle_delete_reminder(self, user_msg: str):
-        parsed = self.extractor.extract_reminder(user_msg)
+        """
+        FIX:
+        - Si EntityExtractor falla → fallback automático
+        - Se limpian frases como:
+            "quita", "elimina", "borra", "deseo quitar", "quiero borrar"
+        - Si no hay fecha → no importa, igual se elimina por título
+        """
+
+        # -----------------------------
+        # 1) Intentar extracción normal
+        # -----------------------------
+        try:
+            parsed = self.extractor.extract_reminder(user_msg)
+        except Exception:
+            parsed = None
+
         title = parsed.title if parsed and parsed.title else None
 
+        # -----------------------------
+        # 2) Fallback: extraer texto después del verbo
+        # -----------------------------
         if not title:
             lowered = user_msg.lower()
-            for key in ["quita ", "elimina ", "borra "]:
-                if key in lowered:
-                    idx = lowered.index(key) + len(key)
+
+            triggers = [
+                "quita ", "elimina ", "borra ",
+                "quiero quitar ", "quiero eliminar ", "quiero borrar ",
+                "deseo quitar ", "deseo eliminar ", "deseo borrar ",
+                "quita el ", "quita la ", "elimina el ", "elimina la "
+            ]
+
+            for t in triggers:
+                if t in lowered:
+                    idx = lowered.index(t) + len(t)
                     title = user_msg[idx:].strip()
                     break
 
+        # -----------------------------
+        # 3) Fallback extra de palabras clave
+        # -----------------------------
         if not title:
-            return {"final": "¿Qué recordatorio deseas quitar?", "action": None}
+            keywords = [
+                "agua", "luz", "internet", "teléfono", "telefono",
+                "renta", "alquiler", "gato", "perro", "tarea",
+                "examen", "pago", "recordatorio"
+            ]
+            l = user_msg.lower()
+            for k in keywords:
+                if k in l:
+                    title = k
+                    break
+
+        # -----------------------------
+        # 4) Si AÚN no hay título
+        # -----------------------------
+        if not title:
+            return {
+                "final": "¿Qué recordatorio deseas quitar?",
+                "action": None
+            }
+
+        clean_title = title.strip()
 
         return {
-            "final": f"De acuerdo, intento eliminar “{title}”.",
-            "action": {"type": "delete_reminder", "payload": {"title": title}},
+            "final": f"De acuerdo, intento eliminar “{clean_title}”.",
+            "action": {
+                "type": "delete_reminder",
+                "payload": {"title": clean_title}
+            },
         }
