@@ -29,6 +29,10 @@ class _SimpleWeather:
 @router.post("/context/sync")
 async def context_sync(req: ContextUpdateRequest):
 
+    print("\n================ CONTEXT SYNC RECIBIDO ================")
+    print(req.dict())
+    print("=======================================================\n")
+
     if req.weather:
         auri.context.set_weather(_SimpleWeather(
             req.weather.temp,
