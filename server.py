@@ -1,22 +1,23 @@
+# server.py
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
 from api_router import router as api_router
+from realtime.realtime_ws import router as realtime_router
 
-app = FastAPI(title="Auri Backend", version="3.0")
+app = FastAPI(title="Auri Backend", version="3.1")
 
-# CORS (para Flutter)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
     allow_headers=["*"],
+    allow_methods=["*"],
 )
 
-# Registrar rutas
 app.include_router(api_router, prefix="/api")
-
+app.include_router(realtime_router)
 
 @app.get("/")
 def home():
-    return {"status": "Auri Backend OK", "version": "3.0"}
+    return {"status": "Auri Backend OK", "version": "3.1"}

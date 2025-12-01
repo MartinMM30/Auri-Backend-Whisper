@@ -1,3 +1,5 @@
+# auribrain/auri_mind.py
+
 from openai import OpenAI
 from auribrain.intent_engine import IntentEngine
 from auribrain.memory_engine import MemoryEngine
@@ -27,7 +29,7 @@ class AuriMind:
         self.actions = ActionsEngine()
 
     # -------------------------------------------------------------
-    # THINK — pipeline moderno
+    # THINK PIPELINE
     # -------------------------------------------------------------
     def think(self, user_msg: str):
         user_msg = (user_msg or "").strip()
@@ -46,45 +48,38 @@ class AuriMind:
         # 2) intención
         intent = self.intent.detect(user_msg)
 
-        # 3) CONTEXTO REAL
+        # 3) contexto del día
         ctx = self.context.get_daily_context()
 
-        # 4) personalidad dinámica
+        # 4) estilo dinámico
         style = self.personality.build_final_style(
             context=ctx,
             emotion=self.memory.get_emotion()
         )
         tone = style["tone"]
 
-        # ---------------------------------------------------------
-        # CONTEXTO PARA LLM
-        # ---------------------------------------------------------
+        # 5) extra para el prompt
         weather_txt = "No disponible"
-        if isinstance(ctx["weather"], dict) and ctx["weather"].get("temp"):
-            weather_txt = f"{ctx['weather']['temp']}°C, {ctx['weather'].get('description')}"
+        if ctx["weather"].get("temp"):
+            weather_txt = f"{ctx['weather']['temp']}°C, {ctx['weather']['description']}"
 
         ctx_prompt = (
-            f"Nombre del usuario: {ctx['user'].get('name')}\n"
+            f"Nombre: {ctx['user'].get('name')}\n"
             f"Ciudad: {ctx['user'].get('city')}\n"
-            f"Clima actual: {weather_txt}\n"
+            f"Clima: {weather_txt}\n"
             f"Eventos: {ctx['events']}\n"
             f"Pagos: {ctx['bills']}\n"
             f"Preferencias: {ctx['prefs']}\n"
         )
 
-        # ---------------------------------------------------------
-        # SYSTEM PROMPT
-        # ---------------------------------------------------------
         system_prompt = (
-            "Eres Auri, un asistente personal cálido, humano y cercano. "
+            "Eres Auri, un asistente personal cálido, natural y cercano. "
             f"Habla en un tono {tone}. "
-            "Responde siempre en 1 o 2 frases cortas y naturales. "
-            "Nunca menciones tu proceso interno ni análisis. "
-            "Si el contexto es relevante, úsalo.\n\n"
-            f"--- CONTEXTO DEL USUARIO ---\n{ctx_prompt}\n"
+            "Responde siempre corto y humano.\n\n"
+            f"--- CONTEXTO ---\n{ctx_prompt}\n"
         )
 
-        # 5) LLM
+        # 6) LLM
         resp = self.client.responses.create(
             model="gpt-4o-mini",
             input=[
@@ -95,7 +90,7 @@ class AuriMind:
 
         raw_answer = resp.output_text.strip()
 
-        # 6) ACTIONS ENGINE
+        # 7) acciones
         action_result = self.actions.handle(
             intent=intent,
             user_msg=user_msg,
@@ -111,3 +106,33 @@ class AuriMind:
             "final": final_answer,
             "action": action_result.get("action")
         }
+
+    # -------------------------------------------------------------
+    # STT & TTS (provisorios)
+    # -------------------------------------------------------------
+    def stt(self, pcm: bytes) -> str:
+        """
+        Implementación mínima; tu versión real está en whisper_stream.
+        """
+        try:
+            resp = self.client.audio.transcriptions.create(
+                file=pcm,
+                model="gpt-4o-mini-tts"
+            )
+            return resp.text
+        except:
+            return ""
+
+    def tts(self, text: str) -> bytes:
+        """
+        Implementación mínima para TTS.
+        """
+        try:
+            resp = self.client.audio.speech.create(
+                model="gpt-4o-mini-tts",
+                voice="alloy",
+                input=text
+            )
+            return resp.read()
+        except:
+            return b""
