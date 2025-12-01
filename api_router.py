@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 
 from auribrain.auri_mind import AuriMind
+from realtime.realtime_broadcast import realtime_broadcast
 
 router = APIRouter()
 auri = AuriMind()
@@ -95,10 +96,12 @@ async def context_sync(req: ContextUpdateRequest):
             auri.personality.set_personality(req.prefs["personality"])
     else:
         blocks_ok = False
+    
 
     # READY CHECK
     if blocks_ok:
-        ctx.mark_ready()
+        auri.context.mark_ready()
+        await realtime_broadcast.broadcast({"type": "context_ready"})
         print("✔ CONTEXTO COMPLETO — ready = True")
     else:
         print("✘ CONTEXTO INCOMPLETO — ready = False")

@@ -14,37 +14,50 @@ class AuriMind:
     """
 
     PERSONALITY_PRESETS = {
-        "auri_classic": {
-            "tone": "cálido y profesional",
-            "emoji": "💜",
-            "length": "medio",
-        },
-        "soft": {
-            "tone": "suave, calmado, relajante",
-            "emoji": "🌙",
-            "length": "corto",
-        },
-        "siri_style": {
-            "tone": "formal, educado, preciso",
-            "emoji": "",
-            "length": "corto",
-        },
-        "anime_soft": {
-            "tone": "tierna, expresiva y dulce",
-            "emoji": "✨",
-            "length": "medio",
-        },
-        "professional": {
-            "tone": "serio, claro, empresarial",
-            "emoji": "",
-            "length": "medio",
-        },
-        "friendly": {
-            "tone": "amigable, casual, cercano",
-            "emoji": "😊",
-            "length": "medio",
-        },
+    "auri_classic": {
+        "tone": "cálido y profesional",
+        "emoji": "💜",
+        "length": "medio",
+        "voice_id": "alloy",
+    },
+    "soft": {
+        "tone": "suave, calmado, relajante",
+        "emoji": "🌙",
+        "length": "corto",
+        "voice_id": "nova",
+    },
+    "siri_style": {
+        "tone": "formal, educado, preciso",
+        "emoji": "",
+        "length": "corto",
+        "voice_id": "verse",
+    },
+    "anime_soft": {
+        "tone": "tierna, expresiva y dulce",
+        "emoji": "✨",
+        "length": "medio",
+        "voice_id": "hikari",
+    },
+    "professional": {
+        "tone": "serio, empresarial",
+        "emoji": "",
+        "length": "medio",
+        "voice_id": "amber",
+    },
+    "friendly": {
+        "tone": "amigable, jovial",
+        "emoji": "😊",
+        "length": "medio",
+        "voice_id": "alloy",
+    },
+    "custom_love_voice": {
+        "tone": "dulce, afectiva, suave",
+        "emoji": "💖",
+        "length": "medio",
+        "voice_id": "myGF_voice",  # tu modelo personalizado
     }
+}
+
 
     def __init__(self):
         self.client = OpenAI()
