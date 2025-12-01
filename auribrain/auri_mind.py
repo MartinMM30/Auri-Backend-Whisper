@@ -52,7 +52,7 @@ class AuriMind:
         # -----------------------------
         #   EXTRAER DATOS SEGUROS
         # -----------------------------
-        user_name = ctx["user"].get("name") or "amigo"
+        user_name = ctx["user"].get("name") or "usuario"
         user_city = ctx["user"].get("city") or "tu ciudad"
         user_job = ctx["user"].get("occupation") or ""
         birthday = ctx["user"].get("birthday") or ""
@@ -111,8 +111,8 @@ PREFERENCIAS:
 REGLAS IMPORTANTES:
 - Si el usuario pregunta “¿quién soy?” o “¿cómo me llamo?”, SIEMPRE responde: {user_name}.
 - Nunca digas que no conoces su nombre.
-- Puedes usar libremente su ciudad, cumpleaños, ocupación y contexto.
-- Responde siempre en 1–2 frases humanas, cálidas y naturales.
+- Usa libremente su ciudad, cumpleaños, ocupación y contexto.
+- Responde siempre en 1–2 frases humanas y naturales.
 """
 
         # 5) LLM
@@ -142,33 +142,3 @@ REGLAS IMPORTANTES:
             "final": final_answer,
             "action": action_result.get("action"),
         }
-
-    # -------------------------------------------------------------
-    # STT & TTS (provisorios)
-    # -------------------------------------------------------------
-    def stt(self, pcm: bytes) -> str:
-        """
-        Implementación mínima; tu versión real está en whisper_stream.
-        """
-        try:
-            resp = self.client.audio.transcriptions.create(
-                file=pcm,
-                model="gpt-4o-mini-tts",
-            )
-            return resp.text
-        except:
-            return ""
-
-    def tts(self, text: str) -> bytes:
-        """
-        Implementación mínima para TTS.
-        """
-        try:
-            resp = self.client.audio.speech.create(
-                model="gpt-4o-mini-tts",
-                voice="alloy",
-                input=text,
-            )
-            return resp.read()
-        except:
-            return b""
