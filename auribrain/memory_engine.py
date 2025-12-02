@@ -1,10 +1,11 @@
 # auribrain/memory_engine.py
+# MemoryEngine V6 – Memoria reciente + integración MongoDB
 
 from dataclasses import dataclass, asdict
 from datetime import datetime
 from typing import List, Optional
-import json
-import os
+
+from auribrain.memory_orchestrator import MemoryOrchestrator
 
 
 @dataclass
@@ -17,53 +18,21 @@ class MemoryEntry:
 
 class MemoryEngine:
     """
-    Memoria de Auri:
-    - reciente: últimas N interacciones (para el prompt)
-    - facts: lista de frases largas sobre el usuario (largo plazo simple)
-    - persistencia básica en disco (JSON)
+    V6 Memory Engine:
+    - Mantiene memoria reciente en RAM (máx 30 interacciones).
+    - Envía datos importantes a MongoDB usando MemoryOrchestrator.
+    - Integra facts + semantic memory (vectores).
     """
 
-    def __init__(self, persist_path: str = "data/memory.json", max_recent: int = 30):
-        self.persist_path = persist_path
+    def __init__(self, user_id: str, max_recent: int = 30):
+        self.user_id = user_id
         self.max_recent = max_recent
 
         self.recent: List[MemoryEntry] = []
-        self.facts: List[str] = []
-
-        self._load()
+        self.orch = MemoryOrchestrator()   # Orquestador MongoDB
 
     # ---------------------------------------------------------
-    # PERSISTENCIA
-    # ---------------------------------------------------------
-    def _load(self):
-        try:
-            if not os.path.exists(self.persist_path):
-                return
-
-            with open(self.persist_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-
-            self.recent = [
-                MemoryEntry(**item) for item in data.get("recent", [])
-            ]
-            self.facts = data.get("facts", [])
-        except Exception as e:
-            print(f"[MemoryEngine] Error cargando memoria: {e}")
-
-    def _save(self):
-        try:
-            os.makedirs(os.path.dirname(self.persist_path), exist_ok=True)
-            data = {
-                "recent": [asdict(m) for m in self.recent],
-                "facts": self.facts,
-            }
-            with open(self.persist_path, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            print(f"[MemoryEngine] Error guardando memoria: {e}")
-
-    # ---------------------------------------------------------
-    # API PRINCIPAL
+    # MEMORIA RECIENTE (contexto conversacional)
     # ---------------------------------------------------------
     def add_interaction(
         self,
@@ -71,55 +40,104 @@ class MemoryEngine:
         assistant_msg: Optional[str] = None,
         intent: Optional[str] = None,
     ):
-        """
-        Guarda una interacción:
-        - Siempre añade el mensaje del usuario.
-        - Opcionalmente añade la respuesta de Auri.
-        """
+        """Guarda una interacción en memoria reciente + analiza si debe guardarse en MongoDB."""
+
         now = datetime.utcnow().isoformat()
 
-        self.recent.append(
-            MemoryEntry(ts=now, role="user", text=user_msg, intent=intent)
+        # --- Mensaje del usuario ---
+        entry_user = MemoryEntry(
+            ts=now,
+            role="user",
+            text=user_msg,
+            intent=intent,
         )
+        self.recent.append(entry_user)
 
+        # --- Mensaje de Auri ---
         if assistant_msg:
-            self.recent.append(
-                MemoryEntry(ts=now, role="assistant", text=assistant_msg, intent=intent)
+            entry_assistant = MemoryEntry(
+                ts=now,
+                role="assistant",
+                text=assistant_msg,
+                intent=intent,
             )
+            self.recent.append(entry_assistant)
 
-        # Mantener solo N últimos
+        # Limitar cantidad
         if len(self.recent) > self.max_recent:
             self.recent = self.recent[-self.max_recent :]
 
-        self._save()
+        # Analizar si este mensaje tiene un “hecho” del usuario
+        self._maybe_save_fact(user_msg)
 
+        # Guardar vector semántico
+        self._save_semantic_memory(user_msg)
+
+    # ---------------------------------------------------------
+    # DETECCIÓN DE HECHOS EXPLÍCITOS
+    # ---------------------------------------------------------
+    def _maybe_save_fact(self, text: str):
+        """
+        Extrae hechos importantes del mensaje del usuario mediante reglas simples.
+        Puedes expandirlo más adelante.
+        """
+        t = text.lower()
+
+        # Nombre
+        if "mi nombre es" in t:
+            name = t.split("mi nombre es")[-1].strip()
+            self.orch.add_fact(self.user_id, f"El usuario se llama {name}")
+
+        # Lugar
+        if "vivo en" in t:
+            place = t.split("vivo en")[-1].strip()
+            self.orch.add_fact(self.user_id, f"Vive en {place}")
+
+        # Color favorito
+        if "mi color favorito es" in t:
+            color = t.split("es")[-1].strip()
+            self.orch.add_fact(self.user_id, f"Su color favorito es {color}")
+
+        # Puedes añadir más reglas naturalmente.
+
+    # ---------------------------------------------------------
+    # SEMANTIC MEMORY (VECTOR STORAGE)
+    # ---------------------------------------------------------
+    def _save_semantic_memory(self, text: str):
+        """
+        Guarda el mensaje como vector para búsquedas futuras tipo RAG.
+        """
+        if len(text.split()) < 3:
+            # Muy pequeño → no aporta
+            return
+
+        self.orch.add_vector(self.user_id, text)
+
+    # ---------------------------------------------------------
+    # EXPORTAR MEMORIA RECIENTE PARA EL PROMPT
+    # ---------------------------------------------------------
     def get_recent_dialog(self, n: int = 8) -> str:
-        """
-        Devuelve una versión texto de las últimas N interacciones.
-        Útil para meter al prompt.
-        """
-        tail = self.recent[-(n * 2) :]  # user+assistant
+        """Devuelve las últimas N interacciones en formato texto."""
+        tail = self.recent[-(n * 2) :]  # user + assistant
+
         lines = []
         for m in tail:
             prefix = "Usuario" if m.role == "user" else "Auri"
             lines.append(f"{prefix}: {m.text}")
+
         return "\n".join(lines)
 
-    def add_fact(self, fact: str):
-        """
-        Añade un dato persistente sobre el usuario.
-        (ej: “Le encanta programar de noche”, “Vive en Cot, Cartago”.)
-        Por ahora lo puedes llamar manualmente desde otros módulos.
-        """
-        fact = fact.strip()
-        if not fact:
-            return
-        # Evitar duplicados simples
-        if fact not in self.facts:
-            self.facts.append(fact)
-            self._save()
+    # ---------------------------------------------------------
+    # RAG (consulta recuerdos de MongoDB)
+    # ---------------------------------------------------------
+    def search_long_term(self, query: str):
+        """Devuelve recuerdos relevantes desde MongoDB."""
+        return self.orch.search(self.user_id, query)
 
-    def get_facts(self) -> str:
-        if not self.facts:
-            return ""
-        return "\n".join(f"- {f}" for f in self.facts)
+    def get_facts(self):
+        """Devuelve facts del usuario almacenados."""
+        return self.orch.get_facts(self.user_id)
+
+    def get_profile(self):
+        """Devuelve perfil guardado del usuario."""
+        return self.orch.get_user_profile(self.user_id)

@@ -1,170 +1,204 @@
 # auribrain/auri_mind.py
 
 from openai import OpenAI
+
 from auribrain.intent_engine import IntentEngine
-from auribrain.memory_engine import MemoryEngine
 from auribrain.context_engine import ContextEngine
 from auribrain.personality_engine import PersonalityEngine
 from auribrain.response_engine import ResponseEngine
 from auribrain.actions_engine import ActionsEngine
 from auribrain.entity_extractor import EntityExtractor
 
+from auribrain.memory_orchestrator import MemoryOrchestrator
 
-class AuriMind:
+
+class AuriMindV6:
     """
-    AuriMind V5 — Identidad estable + Confirmaciones inteligentes + Hands-Free Mode.
+    🔮 AuriMind V6
+    — Memoria personal por usuario (MongoDB)
+    — Memoria semántica (RAG)
+    — Perfil dinámico
+    — Firebase Auth como identidad real
     """
 
     PERSONALITY_PRESETS = {
         "auri_classic": {"tone": "cálido y profesional", "emoji": "💜", "length": "medio", "voice_id": "alloy"},
-        "soft": {"tone": "suave, calmado, relajante", "emoji": "🌙", "length": "corto", "voice_id": "nova"},
-        "siri_style": {"tone": "formal, educado, preciso", "emoji": "", "length": "corto", "voice_id": "verse"},
-        "anime_soft": {"tone": "tierna, expresiva y dulce", "emoji": "✨", "length": "medio", "voice_id": "hikari"},
-        "professional": {"tone": "serio, empresarial", "emoji": "", "length": "medio", "voice_id": "amber"},
-        "friendly": {"tone": "amigable, jovial", "emoji": "😊", "length": "medio", "voice_id": "alloy"},
-        "custom_love_voice": {"tone": "dulce, afectiva, suave", "emoji": "💖", "length": "medio", "voice_id": "myGF_voice"},
+        "soft": {"tone": "suave y calmado", "emoji": "🌙", "length": "corto", "voice_id": "nova"},
+        "siri_style": {"tone": "formal, educado", "emoji": "", "length": "corto", "voice_id": "verse"},
+        "anime_soft": {"tone": "dulce y expresiva", "emoji": "✨", "length": "medio", "voice_id": "hikari"},
+        "professional": {"tone": "serio", "emoji": "", "length": "medio", "voice_id": "amber"},
+        "friendly": {"tone": "amigable", "emoji": "😊", "length": "medio", "voice_id": "alloy"},
+        "custom_love_voice": {"tone": "afectiva y suave", "emoji": "💖", "length": "medio", "voice_id": "myGF_voice"},
     }
 
     def __init__(self):
         self.client = OpenAI()
 
+        # Motores
         self.intent = IntentEngine(self.client)
-        self.memory = MemoryEngine()
+        self.memory = MemoryOrchestrator()
         self.context = ContextEngine()
-        self.context.attach_memory(self.memory)
-
         self.personality = PersonalityEngine()
         self.response = ResponseEngine()
         self.extractor = EntityExtractor()
         self.actions = ActionsEngine()
 
-        # Acción destructiva pendiente
         self.pending_action = None
 
 
     # -------------------------------------------------------------
-    # THINK PIPELINE V5
+    # 🔮 THINK PIPELINE — núcleo de Auri
     # -------------------------------------------------------------
     def think(self, user_msg: str):
-        raw_user_msg = user_msg.strip()
-        user_msg = raw_user_msg.lower()
+        user_msg = (user_msg or "").strip()
 
         if not user_msg:
             return {
+                "final": "No escuché nada, ¿puedes repetirlo?",
                 "intent": "unknown",
-                "raw": "",
-                "final": "No te escuché bien, ¿puedes repetirlo?",
-                "action": None,
                 "voice_id": "alloy",
             }
 
-        # 0) Context
+        # 1) CONTEXTO GLOBAL
         if not self.context.is_ready():
-            return {"final": "Dame un momento… estoy cargando tu información.", "intent": "wait", "raw": "", "action": None, "voice_id": "alloy"}
+            return {
+                "final": "Dame un momento… sigo preparando tu pantalla y tu perfil 💜",
+                "intent": "wait",
+                "voice_id": "alloy",
+            }
 
-        # 1) Intent
-        intent = self.intent.detect(user_msg)
-
-        # 2) Context
         ctx = self.context.get_daily_context()
 
-        # User profile
-        user_name = ctx["user"].get("name", "usuario")
+        # 🔐 Firebase UID → ID real del usuario en memoria Mongo
+        firebase_uid = ctx["user"].get("firebase_uid")
+        if not firebase_uid:
+            return {
+                "final": "Por favor inicia sesión para activar tu memoria personal 💜",
+                "intent": "auth_required",
+                "voice_id": "alloy",
+            }
 
-        # Voice preset
+        user_id = firebase_uid
+
+        # 2) INTENCIÓN
+        intent = self.intent.detect(user_msg)
+
+        # 3) MEMORIA LARGA + SEMÁNTICA + PERFIL
+        profile = self.memory.get_user_profile(user_id)
+        long_facts = self.memory.get_facts(user_id)
+        semantic_memories = self.memory.search_semantic(user_id, user_msg)
+        recent_dialog = self.memory.get_recent_dialog(user_id)
+
+        # 4) PERSONALIDAD
         selected = ctx["prefs"].get("personality", "auri_classic")
-        style = self.PERSONALITY_PRESETS.get(selected, self.PERSONALITY_PRESETS["auri_classic"])
-        tone, emoji, length, voice_id = style["tone"], style["emoji"], style["length"], style["voice_id"]
+        style = self.PERSONALITY_PRESETS[selected]
+        tone, emoji, length, voice_id = (
+            style["tone"], style["emoji"], style["length"], style["voice_id"]
+        )
 
-        # 3) Build system prompt
+        # 5) PROMPT del sistema
         system_prompt = f"""
-Eres Auri, asistente personal de {user_name}.
-Tu estilo actual es: {tone} {emoji}.
+Eres Auri, asistente personal de {profile.get("name", "usuario")}.
+Tu estilo actual es: {tone} {emoji}
 
-Debes responder cálido, humano y claro.
+Memoria del usuario (privada):
+- Perfil: {profile}
+- Hechos importantes: {long_facts}
+- Diálogo reciente:
+{recent_dialog}
+
+Recuerdos relevantes (memoria semántica):
+{semantic_memories}
+
+Reglas:
+- Usa todo esto para mantener continuidad y vínculo.
+- Habla con empatía, precisión y claridad.
+- No inventes datos nuevos sobre el usuario.
 """
 
-        # 4) LLM
+        # 6) LLM — respuesta cruda
         resp = self.client.responses.create(
             model="gpt-4o-mini",
             input=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": raw_user_msg},
+                {"role": "user", "content": user_msg},
             ],
         )
+
         raw_answer = resp.output_text.strip()
 
-        # 5) Actions
-        action_result = self.actions.handle(intent=intent, user_msg=user_msg, context=ctx, memory=self.memory)
+        # 7) ACCIONES
+        action_result = self.actions.handle(
+            intent=intent,
+            user_msg=user_msg,
+            context=ctx,
+            memory=self.memory,
+            user_id=user_id,
+        )
 
         action = action_result.get("action")
         final_answer = action_result.get("final") or raw_answer
 
-        # ==================================================
-        # 🔥 COMANDOS DE VOZ PARA HANDS-FREE MODE
-        # ==================================================
-        if "modo manos libres" in user_msg or "hands free" in user_msg:
-            if "activa" in user_msg or "enciende" in user_msg:
-                return {
-                    "intent": "handsfree_on",
-                    "raw": raw_answer,
-                    "final": "Perfecto, activé el modo manos libres.",
-                    "action": {
-                        "type": "set_handsfree",
-                        "payload": {"enabled": True}
-                    },
-                    "voice_id": voice_id,
-                }
-
-            if "desactiva" in user_msg or "apaga" in user_msg:
-                return {
-                    "intent": "handsfree_off",
-                    "raw": raw_answer,
-                    "final": "Modo manos libres desactivado.",
-                    "action": {
-                        "type": "set_handsfree",
-                        "payload": {"enabled": False}
-                    },
-                    "voice_id": voice_id,
-                }
-
-        # ==================================================
-        # 🔥 Confirmación inteligente para acciones peligrosas
-        # ==================================================
+        # 8) VALIDACIÓN
         destructive_map = {
-            "delete_all_reminders": "¿Quieres que elimine *todos* tus recordatorios?",
-            "delete_category": "¿Eliminar todos los recordatorios de esa categoría?",
-            "delete_by_date": "¿Eliminar los recordatorios de esa fecha?",
-            "delete_reminder": "¿Deseas eliminar ese recordatorio?",
-            "edit_reminder": "¿Confirmas que deseas modificar ese recordatorio?",
+            "delete_all_reminders": "¿Quieres eliminar *todos* tus recordatorios?",
+            "delete_category": "¿Eliminar los recordatorios de esa categoría?",
+            "delete_by_date": "¿Eliminar recordatorios de esa fecha?",
+            "delete_reminder": "¿Eliminar ese recordatorio?",
+            "edit_reminder": "¿Modificar ese recordatorio?",
         }
 
-        confirm_words = ["sí", "si", "ok", "dale", "hazlo", "confirmo", "está bien", "esta bien"]
+        confirms = ["sí", "si", "ok", "dale", "hazlo", "lo confirmo", "confirmo", "está bien", "esta bien"]
 
-        if self.pending_action and user_msg.strip() in confirm_words:
+        # Usuario confirma
+        if self.pending_action and user_msg.lower() in confirms:
             act = self.pending_action
+            act["payload"]["confirmed"] = True
             self.pending_action = None
 
-            payload = act.get("payload", {})
-            payload["confirmed"] = True
-            act["payload"] = payload
+            # Guardar memoria de la interacción
+            self.memory.add_dialog(user_id, "user", user_msg)
+            self.memory.add_dialog(user_id, "assistant", "Perfecto, lo hago ahora.")
 
-            self.memory.add_interaction(user_msg=raw_user_msg, assistant_msg="Perfecto, lo hago ahora.", intent=intent)
+            return {
+                "final": "Perfecto, lo hago ahora.",
+                "action": act,
+                "voice_id": voice_id,
+            }
 
-            return {"intent": intent, "raw": raw_answer, "final": "Perfecto, lo hago ahora.", "action": act, "voice_id": voice_id}
-
+        # Acción destructiva detectada
         if action and action["type"] in destructive_map:
             self.pending_action = action
-            self.memory.add_interaction(user_msg=raw_user_msg, assistant_msg=destructive_map[action["type"]], intent=intent)
-            return {"intent": intent, "raw": raw_answer, "final": destructive_map[action["type"]], "action": None, "voice_id": voice_id}
 
-        # ==================================================
-        # Save memory
-        # ==================================================
-        self.memory.add_interaction(user_msg=raw_user_msg, assistant_msg=final_answer, intent=intent)
+            return {
+                "final": destructive_map[action["type"]],
+                "action": None,
+                "voice_id": voice_id,
+            }
 
-        # Limit length
+        # 9) GUARDAR MEMORIA (seguro)
+        self.memory.add_dialog(user_id, "user", user_msg)
+        self.memory.add_dialog(user_id, "assistant", final_answer)
+
+        # Semántica
+        self.memory.add_semantic(user_id, f"user: {user_msg}")
+        self.memory.add_semantic(user_id, f"assistant: {final_answer}")
+
+        # Extraer hechos (ej: “mi novia se llama…”, “vivo en…”)
+        extracted = self.extractor.extract_facts(user_msg)
+        for fact in extracted:
+            self.memory.add_fact(user_id, fact)
+
+        # 10) LÍMITE POR PERSONALIDAD
         if length == "corto":
-            final_answer = final_answer.split(".")[0].strip() + "."
+            if "." in final_answer:
+                final_answer = final_answer.split(".")[0].strip() + "."
 
-        return {"intent": intent, "raw": raw_answer, "final": final_answer, "action": action, "voice_id": voice_id}
+        # 11) RESULTADO FINAL
+        return {
+            "intent": intent,
+            "raw": raw_answer,
+            "final": final_answer,
+            "action": action,
+            "voice_id": voice_id,
+        }
