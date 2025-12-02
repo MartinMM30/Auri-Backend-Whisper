@@ -1,88 +1,125 @@
+# auribrain/memory_engine.py
+
+from dataclasses import dataclass, asdict
+from datetime import datetime
+from typing import List, Optional
 import json
 import os
-from datetime import datetime
+
+
+@dataclass
+class MemoryEntry:
+    ts: str          # ISO8601
+    role: str        # "user" | "assistant"
+    text: str
+    intent: Optional[str] = None
+
 
 class MemoryEngine:
-    def __init__(self, save_file="auri_memory.json"):
-        self.save_file = save_file
+    """
+    Memoria de Auri:
+    - reciente: últimas N interacciones (para el prompt)
+    - facts: lista de frases largas sobre el usuario (largo plazo simple)
+    - persistencia básica en disco (JSON)
+    """
 
-        self.short_term = []
-        self.long_term = {}
-        self.emotion_state = "neutral"
-        self.narrative = []
+    def __init__(self, persist_path: str = "data/memory.json", max_recent: int = 30):
+        self.persist_path = persist_path
+        self.max_recent = max_recent
+
+        self.recent: List[MemoryEntry] = []
+        self.facts: List[str] = []
 
         self._load()
 
-    def add_interaction(self, text):
-        self.short_term.append({
-            "text": text,
-            "timestamp": datetime.now().isoformat()
-        })
-        self.short_term = self.short_term[-24:]
+    # ---------------------------------------------------------
+    # PERSISTENCIA
+    # ---------------------------------------------------------
+    def _load(self):
+        try:
+            if not os.path.exists(self.persist_path):
+                return
 
-        self._update_emotion(text)
-        self._save()
+            with open(self.persist_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
 
-    def get_recent(self):
-        return [m["text"] for m in self.short_term[-12:]]
-
-    def get_last(self, n=2):
-        return [m["text"] for m in self.short_term[-n:]]
-
-    def remember(self, key, value):
-        self.long_term[key] = value
-        self._save()
-
-    def recall(self, key):
-        return self.long_term.get(key)
-
-    def get_profile(self):
-        return self.long_term
-
-    def _update_emotion(self, text):
-        t = text.lower()
-        if any(k in t for k in ["triste", "solo", "mal", "estresado"]):
-            self.emotion_state = "sad"
-        elif any(k in t for k in ["feliz", "contento", "motivado"]):
-            self.emotion_state = "happy"
-        elif any(k in t for k in ["cansado", "agotado"]):
-            self.emotion_state = "tired"
-
-    def get_emotion(self):
-        return self.emotion_state
-
-    def add_event(self, event):
-        self.narrative.append({
-            "event": event,
-            "timestamp": datetime.now().isoformat()
-        })
-        self._save()
-
-    def get_narrative_summary(self):
-        return [e["event"] for e in self.narrative[-10:]]
+            self.recent = [
+                MemoryEntry(**item) for item in data.get("recent", [])
+            ]
+            self.facts = data.get("facts", [])
+        except Exception as e:
+            print(f"[MemoryEngine] Error cargando memoria: {e}")
 
     def _save(self):
         try:
+            os.makedirs(os.path.dirname(self.persist_path), exist_ok=True)
             data = {
-                "short_term": self.short_term,
-                "long_term": self.long_term,
-                "emotion_state": self.emotion_state,
-                "narrative": self.narrative
+                "recent": [asdict(m) for m in self.recent],
+                "facts": self.facts,
             }
-            with open(self.save_file, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
-        except:
-            pass
+            with open(self.persist_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"[MemoryEngine] Error guardando memoria: {e}")
 
-    def _load(self):
-        if not os.path.exists(self.save_file):
+    # ---------------------------------------------------------
+    # API PRINCIPAL
+    # ---------------------------------------------------------
+    def add_interaction(
+        self,
+        user_msg: str,
+        assistant_msg: Optional[str] = None,
+        intent: Optional[str] = None,
+    ):
+        """
+        Guarda una interacción:
+        - Siempre añade el mensaje del usuario.
+        - Opcionalmente añade la respuesta de Auri.
+        """
+        now = datetime.utcnow().isoformat()
+
+        self.recent.append(
+            MemoryEntry(ts=now, role="user", text=user_msg, intent=intent)
+        )
+
+        if assistant_msg:
+            self.recent.append(
+                MemoryEntry(ts=now, role="assistant", text=assistant_msg, intent=intent)
+            )
+
+        # Mantener solo N últimos
+        if len(self.recent) > self.max_recent:
+            self.recent = self.recent[-self.max_recent :]
+
+        self._save()
+
+    def get_recent_dialog(self, n: int = 8) -> str:
+        """
+        Devuelve una versión texto de las últimas N interacciones.
+        Útil para meter al prompt.
+        """
+        tail = self.recent[-(n * 2) :]  # user+assistant
+        lines = []
+        for m in tail:
+            prefix = "Usuario" if m.role == "user" else "Auri"
+            lines.append(f"{prefix}: {m.text}")
+        return "\n".join(lines)
+
+    def add_fact(self, fact: str):
+        """
+        Añade un dato persistente sobre el usuario.
+        (ej: “Le encanta programar de noche”, “Vive en Cot, Cartago”.)
+        Por ahora lo puedes llamar manualmente desde otros módulos.
+        """
+        fact = fact.strip()
+        if not fact:
             return
-        try:
-            with open(self.save_file, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            self.short_term = data.get("short_term", [])
-            self.long_term = data.get("long_term", {})
-            self.emotion_state = data.get("emotion_state", "neutral")
-            self.narrative = data.get("narrative", [])
-        except:
-            pass
+        # Evitar duplicados simples
+        if fact not in self.facts:
+            self.facts.append(fact)
+            self._save()
+
+    def get_facts(self) -> str:
+        if not self.facts:
+            return ""
+        return "\n".join(f"- {f}" for f in self.facts)

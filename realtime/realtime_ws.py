@@ -20,19 +20,14 @@ STT_MODEL = "whisper-1"
 TTS_MODEL = "gpt-4o-mini-tts"
 SAMPLE_RATE = 16000
 
-# 🔒 MISMO WHITELIST QUE EN ActionsEngine
 SAFE_ACTION_TYPES = {
     "create_reminder",
     "delete_reminder",
     "edit_reminder",
     "open_reminders_list",
-    "delete_all_reminders",
-    "delete_category",
-    "delete_by_date",
 }
 
 
-# PCM → WAV
 def pcm16_to_wav(pcm_bytes: bytes, sample_rate: int):
     buffer = io.BytesIO()
     with wave.open(buffer, "wb") as wav:
@@ -94,9 +89,6 @@ async def realtime_socket(ws: WebSocket):
         logger.info("🔌 WS cerrado")
 
 
-# ============================================================
-# JSON COMMAND HANDLER
-# ============================================================
 async def handle_json(ws: WebSocket, session: RealtimeSession, msg: dict):
     t = msg.get("type")
 
@@ -120,15 +112,7 @@ async def handle_json(ws: WebSocket, session: RealtimeSession, msg: dict):
         await ws.send_json({"type": "pong"})
 
 
-# ============================================================
-# HELPER: ENVÍO SEGURO DE ACCIONES
-# ============================================================
 async def _safe_send_action(ws: WebSocket, action: dict):
-    """
-    - Verifica que action sea dict
-    - Verifica que tenga un 'type' permitido
-    - Evita que un bug rompa el WS
-    """
     if not isinstance(action, dict):
         logger.warning(f"⚠ Acción inválida (no dict): {action}")
         return
@@ -150,9 +134,6 @@ async def _safe_send_action(ws: WebSocket, action: dict):
         logger.exception(f"🔥 Error enviando acción por WS: {e}")
 
 
-# ============================================================
-# PIPELINE STT → THINK → ACTION → TTS
-# ============================================================
 async def process_stt_tts(ws: WebSocket, session: RealtimeSession):
     if len(session.pcm_buffer) == 0:
         await ws.send_json({"type": "reply_final", "text": "No escuché nada."})
@@ -176,13 +157,12 @@ async def process_stt_tts(ws: WebSocket, session: RealtimeSession):
         think_res = auri.think(text)
         reply_text = think_res.get("final") or think_res.get("raw") or ""
         action = think_res.get("action")
+        voice_id = think_res.get("voice_id") or "alloy"
 
         logger.info("🧠 Auri reply: %s", reply_text)
 
         # TTS
-        voice_id = think_res.get("voice_id", "alloy")
         await send_tts(ws, reply_text, voice_id=voice_id)
-
 
         # ACTION (segura)
         if action:
@@ -203,10 +183,9 @@ async def process_text_only(ws: WebSocket, text: str):
         think_res = auri.think(text)
         reply_text = think_res.get("final") or think_res.get("raw") or ""
         action = think_res.get("action")
+        voice_id = think_res.get("voice_id") or "alloy"
 
-        voice_id = think_res.get("voice_id", "alloy")
         await send_tts(ws, reply_text, voice_id=voice_id)
-
 
         if action:
             await _safe_send_action(ws, action)
@@ -219,11 +198,7 @@ async def process_text_only(ws: WebSocket, text: str):
         })
 
 
-# ============================================================
-# TTS STREAMING
-# ============================================================
 async def send_tts(ws: WebSocket, text: str, voice_id: str = "alloy"):
-    # Texto para UI
     await ws.send_json({"type": "reply_partial", "text": text[:60]})
     await ws.send_json({"type": "reply_final", "text": text})
 

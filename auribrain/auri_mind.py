@@ -1,3 +1,5 @@
+# auribrain/auri_mind.py
+
 from openai import OpenAI
 from auribrain.intent_engine import IntentEngine
 from auribrain.memory_engine import MemoryEngine
@@ -54,8 +56,8 @@ class AuriMind:
             "tone": "dulce, afectiva, suave",
             "emoji": "💖",
             "length": "medio",
-            "voice_id": "myGF_voice",
-        }
+            "voice_id": "myGF_voice",  # tu modelo personalizado
+        },
     }
 
     def __init__(self):
@@ -83,40 +85,35 @@ class AuriMind:
                 "raw": "",
                 "final": "No logré escucharte bien, ¿puedes repetirlo?",
                 "action": None,
-                "voice_id": "alloy"
+                "voice_id": "alloy",
             }
 
-        # Esperar contexto
+        # 0) Contexto estricto
         if not self.context.is_ready():
             return {
+                "final": "Dame un momento… estoy terminando de cargar tu perfil y agenda.",
                 "intent": "wait",
                 "raw": "",
-                "final": "Dame un momento… estoy terminando de cargar tu perfil y agenda.",
                 "action": None,
-                "voice_id": "alloy"
+                "voice_id": "alloy",
             }
 
-        # Memoria a corto plazo
-        self.memory.add_interaction(user_msg)
-
-        # Detectar intención
+        # 1) intención
         intent = self.intent.detect(user_msg)
 
-        # Obtener contexto actual
+        # 2) contexto completo
         ctx = self.context.get_daily_context()
 
-        # Perfil del usuario
-        user = ctx.get("user", {})
-        user_name = user.get("name", "usuario")
-        user_city = user.get("city", "tu ciudad")
-        user_job = user.get("occupation", "")
-        birthday = user.get("birthday", "")
+        # 3) perfil del usuario
+        user_name = ctx["user"].get("name") or "usuario"
+        user_city = ctx["user"].get("city") or "tu ciudad"
+        user_job = ctx["user"].get("occupation") or ""
+        birthday = ctx["user"].get("birthday") or ""
 
-        # Personalidad configurada
+        # 4) personalidad seleccionada
         selected = ctx["prefs"].get("personality", "auri_classic")
         style = self.PERSONALITY_PRESETS.get(
-            selected,
-            self.PERSONALITY_PRESETS["auri_classic"]
+            selected, self.PERSONALITY_PRESETS["auri_classic"]
         )
 
         tone = style["tone"]
@@ -124,7 +121,11 @@ class AuriMind:
         length = style["length"]
         voice_id = style["voice_id"]
 
-        # SYSTEM PROMPT
+        # 5) memoria reciente + hechos
+        recent_dialog = self.memory.get_recent_dialog()
+        facts = self.memory.get_facts()
+
+        # 6) system prompt V4
         system_prompt = f"""
 Eres Auri, asistente personal de {user_name}.
 Tu estilo actual es: {tone} {emoji}.
@@ -135,53 +136,76 @@ IDENTIDAD DEL USUARIO:
 - Ocupación: {user_job}
 - Cumpleaños: {birthday}
 
-INFORMACIÓN EN TIEMPO REAL:
-- Zona horaria: {ctx.get('timezone')}
-- Hora local: {ctx.get('current_time_pretty')}
-- Fecha: {ctx.get('current_date_pretty')}
-- ISO: {ctx.get('current_time_iso')}
+INFORMACIÓN DE TIEMPO REAL:
+- Zona horaria del usuario: {ctx.get('timezone', 'desconocida')}
+- Hora local actual: {ctx.get('current_time_pretty', 'desconocida')}
+- Fecha local: {ctx.get('current_date_pretty', 'desconocida')}
+- ISO: {ctx.get('current_time_iso', '')}
 
-REGLAS:
-- Si pregunta la hora → usa la hora local.
-- Si pregunta la fecha → usa la fecha local.
-- Si pregunta quién es → responde exactamente: "{user_name}".
-- Usa un estilo humano, cálido, natural.
+CLIMA ACTUAL:
+{ctx['weather']}
+
+AGENDA:
+{ctx['events']}
+
+PREFERENCIAS:
+{ctx['prefs']}
+
+MEMORIA RECIENTE (últimos mensajes):
+{recent_dialog or "Sin conversaciones recientes."}
+
+DATOS QUE RECUERDAS DEL USUARIO:
+{facts or "Aún no has aprendido datos permanentes importantes."}
+
+REGLAS IMPORTANTES:
+1. Si el usuario pregunta la hora (ej: “qué hora es”, “dime la hora”, “hora actual”),
+   RESPONDE SIEMPRE usando la hora local:
+   → {ctx.get('current_time_pretty', 'hora_desconocida')}
+2. Si pregunta la fecha, usa:
+   → {ctx.get('current_date_pretty', 'fecha_desconocida')}
+3. Si el usuario pregunta “¿quién soy?”, responde literalmente: "{user_name}".
+4. Usa clima, ciudad, cumpleaños, clases, pagos y eventos si aplican.
+5. Si la personalidad indica “corto”, responde en 1 sola frase.
+6. Si la personalidad indica “medio”, responde en 1–2 frases naturales.
+7. Mantén un estilo humano, cálido y claro.
 """
 
-        # ---------------------------
-        # RESPUESTA BASE CON LLM
-        # ---------------------------
+        # 7) llamada al modelo
         resp = self.client.responses.create(
             model="gpt-4o-mini",
             input=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_msg},
-            ]
+            ],
         )
 
         raw_answer = resp.output_text.strip()
 
-        # ---------------------------
-        # PROCESAR ACCIONES
-        # ---------------------------
-        action_res = self.actions.handle(
+        # 8) acciones (recordatorios, etc.)
+        action_result = self.actions.handle(
             intent=intent,
             user_msg=user_msg,
             context=ctx,
-            memory=self.memory
+            memory=self.memory,
         )
 
-        final_answer = action_res.get("final") or raw_answer
-        action = action_res.get("action")
+        final_answer = action_result.get("final") or raw_answer
 
-        # Limitar longitud si personalidad lo pide
+        # 9) límite de longitud por personalidad
         if length == "corto":
             final_answer = final_answer.split(".")[0].strip() + "."
+
+        # 10) guardar en memoria (usuario + respuesta)
+        self.memory.add_interaction(
+            user_msg=user_msg,
+            assistant_msg=final_answer,
+            intent=intent,
+        )
 
         return {
             "intent": intent,
             "raw": raw_answer,
             "final": final_answer,
-            "action": action,
-            "voice_id": voice_id
+            "action": action_result.get("action"),
+            "voice_id": voice_id,
         }
