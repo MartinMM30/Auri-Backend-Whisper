@@ -181,3 +181,11 @@ MENSAJE DEL USUARIO:
         except Exception as e:
             print(f"[EntityExtractor V3] ERROR CRÍTICO: {e}")
             return None
+        
+    def extract_facts(self, text: str):
+        """
+        Devuelve una lista de hechos detectados en el texto.
+        Por ahora devolvemos vacío para evitar crashes.
+        """
+        return []
+
