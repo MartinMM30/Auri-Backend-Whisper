@@ -11,13 +11,13 @@ class IntentEngine:
         self.client = client
 
     # ================================================================
-    # RULE-BASED (robusto y ultra rápido)
+    # RULE-BASED (ROBUSTO)
     # ================================================================
     def _rule_based(self, text: str):
         if not text:
             return None
 
-        t = text.lower()
+        t = text.lower().strip()
 
         # --- DELETE REMINDER ---
         if any(w in t for w in [
@@ -27,23 +27,33 @@ class IntentEngine:
         ]):
             return "reminder.remove"
 
-        # --- CREATE REMINDER ---
-        if any(w in t for w in [
-            "recordatorio", "recuérdame", "recuerdame",
-            "crea", "crear", "programa", "agenda esto",
-            "anota", "agéndame", "agendame"
-        ]):
-            return "reminder.create"
-
         # --- QUERY REMINDERS ---
         if any(w in t for w in [
             "qué recordatorios tengo",
+            "qué recordatorios hay",
+            "qué tengo hoy",
             "mis recordatorios",
             "ver recordatorios",
-            "lista de recordatorios"
+            "lista de recordatorios",
+            "dime mis recordatorios",
+            "cuáles son mis recordatorios",
+            "muéstrame mis recordatorios"
         ]):
             return "reminder.query"
 
+        # --- CREATE REMINDER ---
+        if any(w in t for w in [
+            "recuérdame", "recuerdame",
+            "pon un recordatorio",
+            "crea un recordatorio",
+            "crea un recordatorio para",
+            "programa", "anota",
+            "recordatorio para",
+            "recuérdame para",
+        ]):
+            return "reminder.create"
+
+        # Default
         return None
 
     # ================================================================
@@ -51,7 +61,7 @@ class IntentEngine:
     # ================================================================
     def _llm(self, text: str):
         prompt = f"""
-Clasifica este mensaje en un intent.
+Clasifica este mensaje en un intent:
 
 Opciones:
 - reminder.create
@@ -60,37 +70,34 @@ Opciones:
 - conversation.general
 
 Ejemplos:
-"qué recordatorios tengo" → reminder.query
-"recuérdame tomar agua mañana" → reminder.create
-"quita el recordatorio de agua" → reminder.remove
+"qué recordatorios tengo" → reminder.query  
+"recuérdame tomar agua mañana" → reminder.create  
+"quita el recordatorio de agua" → reminder.remove  
 
-Mensaje:
-"{text}"
+Mensaje: "{text}"
 
-Responde SOLO el nombre del intent.
+Responde *solo* el nombre del intent.
 """
 
         try:
             resp = self.client.responses.create(
                 model="gpt-4o-mini",
                 input=[
-                    {"role": "system", "content": "Eres un clasificador experto. Solo responde un intent."},
-                    {"role": "user", "content": prompt}
-                ]
+                    {"role": "system", "content": "Clasifica intenciones. Solo responde el nombre del intent."},
+                    {"role": "user", "content": prompt},
+                ],
             )
             return resp.output_text.strip()
+
         except Exception as e:
             logger.error(f"[IntentEngine] LLM error: {e}")
             return "conversation.general"
 
     # ================================================================
-    # ENTRADA PRINCIPAL
+    # DECISIÓN FINAL
     # ================================================================
     def detect(self, text: str):
-        # 1) Primero reglas (rápido y 100% confiable)
         rule = self._rule_based(text)
         if rule:
             return rule
-
-        # 2) Fallback al LLM
         return self._llm(text)
