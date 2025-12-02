@@ -10,7 +10,7 @@ from auribrain.actions_engine import ActionsEngine
 from auribrain.entity_extractor import EntityExtractor
 from auribrain.memory_orchestrator import MemoryOrchestrator
 from auribrain.fact_extractor import extract_facts
-
+from auribrain.emotion_engine import EmotionEngine
 
 
 class AuriMindV6:
@@ -35,6 +35,7 @@ class AuriMindV6:
         self.response = ResponseEngine()
         self.extractor = EntityExtractor()
         self.actions = ActionsEngine()
+        self.emotion = EmotionEngine()  # 🧠 Estado emocional interno persistente
 
         self.pending_action = None
 
@@ -78,29 +79,146 @@ class AuriMindV6:
 
         # 4) PERSONALIDAD
         selected = ctx["prefs"].get("personality", "auri_classic")
-        style = self.PERSONALITY_PRESETS[selected]
+        style = self.PERSONALITY_PRESETS.get(selected, self.PERSONALITY_PRESETS["auri_classic"])
         tone, emoji, length, voice_id = style["tone"], style["emoji"], style["length"], style["voice_id"]
 
-        # 5) SYSTEM PROMPT
-        system_prompt = f"""
-Eres Auri, asistente personal de {profile.get("name", "usuario")}.
-Tu estilo actual es: {tone} {emoji}
+        # 5) EMOCIONES (usuario + Auri)
+        user_emotion = "neutral"
+        try:
+            # Intentamos varias firmas posibles para que no reviente si cambia EmotionEngine
+            if hasattr(self.emotion, "analyze_user_emotion"):
+                user_emotion = self.emotion.analyze_user_emotion(user_msg)
+            elif hasattr(self.emotion, "analyze"):
+                user_emotion = self.emotion.analyze(user_msg)
+        except Exception as e:
+            print(f"[EmotionEngine] No se pudo analizar emoción de usuario: {e}")
 
-Memoria del usuario:
-- Perfil: {profile}
-- Hechos importantes: {long_facts}
-- Diálogo reciente:
+        try:
+            # Actualizar estado interno de Auri según la emoción detectada
+            if hasattr(self.emotion, "update_from_user"):
+                self.emotion.update_from_user(user_emotion)
+            elif hasattr(self.emotion, "update_state"):
+                self.emotion.update_state(user_emotion)
+        except Exception as e:
+            print(f"[EmotionEngine] No se pudo actualizar estado interno: {e}")
+
+        # Estado interno actual de Auri
+        emotion_state = "neutral"
+        emotion_state_detail = None
+        state_attr = getattr(self.emotion, "state", None)
+        if isinstance(state_attr, dict):
+            emotion_state = state_attr.get("label", "neutral")
+            emotion_state_detail = state_attr
+        else:
+            emotion_state_detail = state_attr
+
+        # 6) SYSTEM PROMPT — versión emocional
+        system_prompt = f"""
+Eres Auri, un asistente personal emocional e inteligente.
+
+Tu comportamiento NO es fijo: depende del estado emocional actual de AuriMind,
+del estado emocional del usuario y de la personalidad seleccionada.
+
+────────────────────────────────────────────────────────
+🧠 PERFIL DEL USUARIO
+────────────────────────────────────────────────────────
+Nombre del usuario: {profile.get("name", "usuario")}
+Ciudad: {profile.get("city", "desconocida")}
+Ocupación: {profile.get("occupation", "desconocida")}
+Cumpleaños: {profile.get("birthday", "desconocido")}
+Otros datos relevantes del perfil:
+{profile}
+
+────────────────────────────────────────────────────────
+📘 HECHOS IMPORTANTES DEL USUARIO
+────────────────────────────────────────────────────────
+Estos son hechos permanentes que el usuario te ha contado.
+Úsalos para personalizar tu respuesta, pero NUNCA inventes datos nuevos.
+{long_facts}
+
+────────────────────────────────────────────────────────
+💬 DIÁLOGO RECIENTE
+────────────────────────────────────────────────────────
+Usa este historial para mantener coherencia en la conversación:
 {recent_dialog}
 
-Recuerdos relevantes:
+────────────────────────────────────────────────────────
+🧠 MEMORIA SEMÁNTICA RELEVANTE
+────────────────────────────────────────────────────────
+Recuerdos profundos relacionados con el mensaje actual:
 {semantic_memories}
 
+────────────────────────────────────────────────────────
+🌤️ CONTEXTO DEL DÍA
+────────────────────────────────────────────────────────
+Clima actual: {ctx.get("weather")}
+Eventos próximos: {ctx.get("events")}
+Pagos próximos: {ctx.get("payments")}
+Preferencias del usuario: {ctx.get("prefs")}
+
+────────────────────────────────────────────────────────
+💜 PERSONALIDAD SELECCIONADA
+────────────────────────────────────────────────────────
+Estilo base seleccionado por el usuario:
+- Tono: {tone}
+- Extensión de respuesta: {length}
+- Emoji principal: {emoji}
+
+Este es tu estilo base, PERO puede ser modulado por tu estado emocional.
+
+────────────────────────────────────────────────────────
+💗 ESTADO EMOCIONAL ACTUAL DE AURI
+────────────────────────────────────────────────────────
+Estado emocional interno: {emotion_state}
+Valores internos:
+{emotion_state_detail}
+
+Tu estilo, calidez, energía y forma de hablar deben adaptarse a este estado.
+Ejemplos:
+- Si estás "affectionate": responde con cariño suave.
+- Si estás "empathetic": responde con apoyo emocional.
+- Si estás "happy": responde con energía y calidez.
+- Si estás "tired": responde más corto y suave.
+- Si estás "stressed": responde más seria y directa (pero nunca fría).
+
+────────────────────────────────────────────────────────
+💬 EMOCIÓN DETECTADA EN EL USUARIO
+────────────────────────────────────────────────────────
+El usuario parece estar: {user_emotion}
+
 Reglas:
-- Usa memoria real, no inventes datos nuevos.
-- Habla con empatía.
+- Si el usuario está triste: responde con empatía y suavidad.
+- Si está feliz: puedes ser más entusiasta.
+- Si expresa cariño: puedes ser afectiva, pero respetuosa.
+- Si está preocupado: responde con calma, claridad y apoyo.
+
+────────────────────────────────────────────────────────
+📏 REGLAS GENERALES
+────────────────────────────────────────────────────────
+1. No inventes hechos. Usa solo lo que está en las memorias.
+2. Mantén coherencia con la personalidad seleccionada y tu estado emocional.
+3. Responde siempre de forma humana, cálida y clara.
+4. Puedes usar emojis, pero de forma moderada, según la personalidad.
+5. Si la persona no especifica algo, pide aclaración suave, no agresiva.
+6. Nunca menciones explícitamente “mi estado emocional interno es…”.
+   Solo debes reflejarlo en el estilo.
+
+────────────────────────────────────────────────────────
+🟣 OBJETIVO FINAL
+────────────────────────────────────────────────────────
+Da una respuesta clara, empática y personalizada al mensaje del usuario,
+reflejando:
+
+✔ La memoria  
+✔ La personalidad  
+✔ El contexto  
+✔ La emoción del usuario  
+✔ Tu propio estado emocional  
+
+Tu respuesta debe sentirse como la de un compañero que piensa, recuerda y siente.
 """
 
-        # 6) LLM
+        # 7) LLM
         resp = self.client.responses.create(
             model="gpt-4o-mini",
             input=[
@@ -111,7 +229,7 @@ Reglas:
 
         raw_answer = (resp.output_text or "").strip()
 
-        # 7) ACTION ENGINE
+        # 8) ACTION ENGINE
         action_result = self.actions.handle(
             intent=intent,
             user_msg=user_msg,
@@ -152,22 +270,26 @@ Reglas:
             self.pending_action = action
             return {"final": destructive_map[action["type"]], "action": None, "voice_id": voice_id}
 
-        # 8) GUARDAR MEMORIA
+        # 9) GUARDAR MEMORIA
         self.memory.add_dialog(user_id, "user", user_msg)
         self.memory.add_dialog(user_id, "assistant", final_answer)
 
         self.memory.add_semantic(user_id, f"user: {user_msg}")
         self.memory.add_semantic(user_id, f"assistant: {final_answer}")
 
-        facts_detected = extract_facts(user_msg)
-        for fact in facts_detected:
-            self.memory.add_fact_structured(user_id, fact)
+        # 10) HECHOS ESTRUCTURADOS
+        try:
+            facts_detected = extract_facts(user_msg)
+            for fact in facts_detected:
+                self.memory.add_fact_structured(user_id, fact)
+        except Exception as e:
+            print(f"[FactExtractor] ERROR al extraer hechos: {e}")
 
-        # 9) LIMITAR RESPUESTA SEGÚN PERSONALIDAD
+        # 11) LIMITAR RESPUESTA SEGÚN PERSONALIDAD
         if length == "corto" and "." in final_answer:
             final_answer = final_answer.split(".")[0].strip() + "."
 
-        # 10) 🔥 PARCHE FINAL — NUNCA devolver None
+        # 12) 🔥 PARCHE FINAL — NUNCA devolver None
         return {
             "intent": intent or "other",
             "raw": raw_answer or "",
