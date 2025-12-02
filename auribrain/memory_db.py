@@ -10,6 +10,7 @@ client = MongoClient(MONGO_URI)
 db = client["auri_db"]
 
 # Colecciones
-users = db["users"]                 # perfil del usuario
-facts = db["facts"]                 # hechos importantes
-dialog_recent = db["dialog_recent"] # memoria corta (últimos 20 mensajes)
+users = db["users"]                   # perfil del usuario
+facts = db["facts"]                   # hechos importantes
+dialog_recent = db["dialog_recent"]   # memoria corta (últimos 20 mensajes)
+memory_vectors = db["memory_vectors"] # memoria semántica (embeddings)
