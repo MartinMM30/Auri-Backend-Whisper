@@ -5,7 +5,9 @@ from typing import Any, Dict, List
 class ContextEngine:
 
     def __init__(self):
-        self.memory = None
+        self._ctx = {}
+        self._ready = False
+        self._active_uid = None  
 
         # USER
         self.user = {
@@ -46,6 +48,11 @@ class ContextEngine:
 
         # READY FLAG
         self.ready_flag = False
+    def set_user_uid(self, uid: str):
+        self._active_uid = uid
+
+    def get_user_uid(self):
+        return self._active_uid
 
     # =====================================================
     def attach_memory(self, memory):

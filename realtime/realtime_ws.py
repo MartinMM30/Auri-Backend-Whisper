@@ -39,9 +39,14 @@ def pcm16_to_wav(pcm_bytes: bytes, sample_rate: int):
     return buffer
 
 
+# ============================================================
+# SESSION
+# ============================================================
+
 class RealtimeSession:
     def __init__(self):
         self.pcm_buffer = bytearray()
+        self.firebase_uid = None  # usuario real de la sesión
 
     def append_pcm(self, data: bytes):
         self.pcm_buffer.extend(data)
@@ -49,6 +54,10 @@ class RealtimeSession:
     def clear(self):
         self.pcm_buffer.clear()
 
+
+# ============================================================
+# MAIN WEBSOCKET HANDLER
+# ============================================================
 
 @router.websocket("/realtime")
 async def realtime_socket(ws: WebSocket):
@@ -89,28 +98,67 @@ async def realtime_socket(ws: WebSocket):
         logger.info("🔌 WS cerrado")
 
 
+# ============================================================
+# JSON HANDLER
+# ============================================================
+
 async def handle_json(ws: WebSocket, session: RealtimeSession, msg: dict):
     t = msg.get("type")
 
+    # --------------------------
+    # CLIENT HELLO
+    # --------------------------
     if t == "client_hello":
-        logger.info("🙋 HELLO: %s", msg)
-        await ws.send_json({"type": "hello_ok"})
+        uid = msg.get("firebase_uid")
+        session.firebase_uid = uid
 
+        logger.info(f"🙋 HELLO recibido — UID: {uid}")
+
+        if uid:
+            try:
+                auri.set_user_uid(uid)
+                logger.info(f"🔗 Auri asociado al usuario {uid}")
+            except Exception as e:
+                logger.error(f"⚠ Error asignando UID a AuriMind: {e}")
+
+        await ws.send_json({"type": "hello_ok"})
+        return
+
+    # --------------------------
+    # START SESSION
+    # --------------------------
     elif t == "start_session":
         logger.info("🎤 Inicio sesión de voz")
         session.clear()
+        return
 
+    # --------------------------
+    # AUDIO END
+    # --------------------------
     elif t == "audio_end":
         await process_stt_tts(ws, session)
+        return
 
+    # --------------------------
+    # TEXT ONLY MODE
+    # --------------------------
     elif t == "text_command":
         txt = (msg.get("text") or "").strip()
         if txt:
-            await process_text_only(ws, txt)
+            await process_text_only(ws, session, txt)
+        return
 
+    # --------------------------
+    # PING
+    # --------------------------
     elif t == "ping":
         await ws.send_json({"type": "pong"})
+        return
 
+
+# ============================================================
+# SAFE ACTION SENDER
+# ============================================================
 
 async def _safe_send_action(ws: WebSocket, action: dict):
     if not isinstance(action, dict):
@@ -134,6 +182,10 @@ async def _safe_send_action(ws: WebSocket, action: dict):
         logger.exception(f"🔥 Error enviando acción por WS: {e}")
 
 
+# ============================================================
+# STT + LLM + TTS PIPELINE
+# ============================================================
+
 async def process_stt_tts(ws: WebSocket, session: RealtimeSession):
     if len(session.pcm_buffer) == 0:
         await ws.send_json({"type": "reply_final", "text": "No escuché nada."})
@@ -145,7 +197,9 @@ async def process_stt_tts(ws: WebSocket, session: RealtimeSession):
     wav.name = "audio.wav"
 
     try:
+        # --------------------------
         # STT
+        # --------------------------
         stt = await client.audio.transcriptions.create(
             model=STT_MODEL,
             file=wav,
@@ -153,7 +207,18 @@ async def process_stt_tts(ws: WebSocket, session: RealtimeSession):
         text = (getattr(stt, "text", "") or "").strip()
         logger.info("📝 Texto STT: %s", text)
 
-        # THINK
+        # --------------------------
+        # USER BINDING
+        # --------------------------
+        if session.firebase_uid:
+            try:
+                auri.set_user_uid(session.firebase_uid)
+            except Exception as e:
+                logger.error(f"⚠ No se pudo asignar UID en STT: {e}")
+
+        # --------------------------
+        # THINK + ACTIONS
+        # --------------------------
         think_res = auri.think(text)
         reply_text = think_res.get("final") or think_res.get("raw") or ""
         action = think_res.get("action")
@@ -161,10 +226,14 @@ async def process_stt_tts(ws: WebSocket, session: RealtimeSession):
 
         logger.info("🧠 Auri reply: %s", reply_text)
 
+        # --------------------------
         # TTS
+        # --------------------------
         await send_tts(ws, reply_text, voice_id=voice_id)
 
-        # ACTION (segura)
+        # --------------------------
+        # ACTION (SAFE)
+        # --------------------------
         if action:
             await _safe_send_action(ws, action)
 
@@ -178,8 +247,18 @@ async def process_stt_tts(ws: WebSocket, session: RealtimeSession):
     session.clear()
 
 
-async def process_text_only(ws: WebSocket, text: str):
+# ============================================================
+# TEXT ONLY PIPELINE
+# ============================================================
+
+async def process_text_only(ws: WebSocket, session: RealtimeSession, text: str):
     try:
+        if session.firebase_uid:
+            try:
+                auri.set_user_uid(session.firebase_uid)
+            except Exception as e:
+                logger.error(f"⚠ No se pudo asignar UID en TEXT: {e}")
+
         think_res = auri.think(text)
         reply_text = think_res.get("final") or think_res.get("raw") or ""
         action = think_res.get("action")
@@ -197,6 +276,10 @@ async def process_text_only(ws: WebSocket, text: str):
             "text": "Hubo un problema procesando tu mensaje."
         })
 
+
+# ============================================================
+# TTS STREAMING
+# ============================================================
 
 async def send_tts(ws: WebSocket, text: str, voice_id: str = "alloy"):
     await ws.send_json({"type": "reply_partial", "text": text[:60]})

@@ -202,3 +202,26 @@ Reglas:
             "action": action,
             "voice_id": voice_id,
         }
+            # -------------------------------------------------------------
+    # 🔐 Asignar el UID del usuario activo desde WebSocket
+    # -------------------------------------------------------------
+    def set_user_uid(self, uid: str):
+        """
+        Informa al motor de memoria que el usuario activo cambió.
+        Esto fuerza a cargar su perfil, hechos, y diálogo reciente.
+        """
+        if not uid:
+            return
+
+        try:
+            # Actualiza el usuario activo en el contexto
+            self.context.set_user_uid(uid)
+
+            # Precarga memoria para reducir latencia en think()
+            _ = self.memory.get_user_profile(uid)
+            _ = self.memory.get_facts(uid)
+            _ = self.memory.get_recent_dialog(uid)
+
+        except Exception as e:
+            print(f"⚠ No se pudo establecer usuario activo en AuriMind: {e}")
+
