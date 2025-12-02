@@ -6,27 +6,27 @@ from openai import OpenAI
 
 def extract_facts(text: str):
     """
-    FactExtractor V4 – estable y compatible con response_format=json_object
+    FactExtractor V5 – Compatible con OpenAI Responses API (sin response_format)
+    Produce SIEMPRE JSON parseable mediante instrucción en el prompt.
     """
 
     client = OpenAI()
 
     system_msg = (
-        "Eres un extractor de HECHOS del usuario. "
-        "Debes devolver un objeto JSON válido. "
-        "La palabra 'json' ya fue mencionada. "
-        "Tu salida DEBE ser estrictamente un json_object."
+        "Eres un extractor de hechos personales del usuario. "
+        "Debes devolver EXCLUSIVAMENTE un JSON válido. "
+        "No incluyas explicaciones, solo JSON."
     )
 
     user_prompt = f"""
-Extrae *hechos personales del usuario* a partir del siguiente texto.
+Extrae hechos personales del usuario.
 
-Regresa SIEMPRE un JSON con la forma:
+Devuelve SIEMPRE este formato JSON:
 
 {{
   "facts": [
     {{
-      "text": "hecho detectado",
+      "text": "hecho",
       "category": "relationship | preference | personal | pet | work | other",
       "importance": 1,
       "confidence": 1.0
@@ -35,33 +35,36 @@ Regresa SIEMPRE un JSON con la forma:
 }}
 
 Reglas:
-- Si NO hay hechos, devuelve "facts": [].
+- Si no hay hechos, devuelve "facts": [].
 - No inventes nada.
-- Un hecho es información sobre el usuario, familia, gustos, mascotas, preferencias, etc.
-- Usa importance de 1 a 5 según relevancia.
-- Usa confidence entre 0.0 y 1.0.
+- Un hecho es información sobre familia, gustos, mascotas, trabajo, nombre, etc.
 
-TEXTO DEL USUARIO:
+TEXTO:
 \"\"\"{text}\"\"\"
 """
 
     try:
+        # 🚀 API nueva de OpenAI
         resp = client.responses.create(
             model="gpt-4o-mini",
-            response_format={"type": "json_object"},
             input=[
                 {"role": "system", "content": system_msg},
                 {"role": "user", "content": user_prompt}
             ]
         )
 
-        raw = resp.output_text
-        data = json.loads(raw)
+        raw = resp.output_text.strip()
 
-        if "facts" not in data:
+        # Intentar parsear el JSON generado
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            print("[FactExtractor] WARNING: El modelo devolvió algo no parseable")
+            print(raw)
             return []
 
-        return data["facts"]
+        facts = data.get("facts", [])
+        return facts
 
     except Exception as e:
         print("[FactExtractor ERROR]", e)
