@@ -8,18 +8,10 @@ from auribrain.personality_engine import PersonalityEngine
 from auribrain.response_engine import ResponseEngine
 from auribrain.actions_engine import ActionsEngine
 from auribrain.entity_extractor import EntityExtractor
-
 from auribrain.memory_orchestrator import MemoryOrchestrator
 
 
 class AuriMindV6:
-    """
-    🔮 AuriMind V6
-    — Memoria personal por usuario (MongoDB)
-    — Memoria semántica (RAG)
-    — Perfil dinámico
-    — Firebase Auth como identidad real
-    """
 
     PERSONALITY_PRESETS = {
         "auri_classic": {"tone": "cálido y profesional", "emoji": "💜", "length": "medio", "voice_id": "alloy"},
@@ -34,7 +26,6 @@ class AuriMindV6:
     def __init__(self):
         self.client = OpenAI()
 
-        # Motores
         self.intent = IntentEngine(self.client)
         self.memory = MemoryOrchestrator()
         self.context = ContextEngine()
@@ -45,21 +36,16 @@ class AuriMindV6:
 
         self.pending_action = None
 
-
     # -------------------------------------------------------------
-    # 🔮 THINK PIPELINE — núcleo de Auri
+    # THINK PIPELINE
     # -------------------------------------------------------------
     def think(self, user_msg: str):
+
         user_msg = (user_msg or "").strip()
-
         if not user_msg:
-            return {
-                "final": "No escuché nada, ¿puedes repetirlo?",
-                "intent": "unknown",
-                "voice_id": "alloy",
-            }
+            return {"final": "No escuché nada, ¿puedes repetirlo?", "intent": "unknown", "voice_id": "alloy"}
 
-        # 1) CONTEXTO GLOBAL
+        # 1) CONTEXTO
         if not self.context.is_ready():
             return {
                 "final": "Dame un momento… sigo preparando tu pantalla y tu perfil 💜",
@@ -69,7 +55,6 @@ class AuriMindV6:
 
         ctx = self.context.get_daily_context()
 
-        # 🔐 Firebase UID → ID real del usuario en memoria Mongo
         firebase_uid = ctx["user"].get("firebase_uid")
         if not firebase_uid:
             return {
@@ -80,10 +65,10 @@ class AuriMindV6:
 
         user_id = firebase_uid
 
-        # 2) INTENCIÓN
+        # 2) INTENT
         intent = self.intent.detect(user_msg)
 
-        # 3) MEMORIA LARGA + SEMÁNTICA + PERFIL
+        # 3) MEMORIA
         profile = self.memory.get_user_profile(user_id)
         long_facts = self.memory.get_facts(user_id)
         semantic_memories = self.memory.search_semantic(user_id, user_msg)
@@ -92,31 +77,28 @@ class AuriMindV6:
         # 4) PERSONALIDAD
         selected = ctx["prefs"].get("personality", "auri_classic")
         style = self.PERSONALITY_PRESETS[selected]
-        tone, emoji, length, voice_id = (
-            style["tone"], style["emoji"], style["length"], style["voice_id"]
-        )
+        tone, emoji, length, voice_id = style["tone"], style["emoji"], style["length"], style["voice_id"]
 
-        # 5) PROMPT del sistema
+        # 5) SYSTEM PROMPT
         system_prompt = f"""
 Eres Auri, asistente personal de {profile.get("name", "usuario")}.
 Tu estilo actual es: {tone} {emoji}
 
-Memoria del usuario (privada):
+Memoria del usuario:
 - Perfil: {profile}
 - Hechos importantes: {long_facts}
 - Diálogo reciente:
 {recent_dialog}
 
-Recuerdos relevantes (memoria semántica):
+Recuerdos relevantes:
 {semantic_memories}
 
 Reglas:
-- Usa todo esto para mantener continuidad y vínculo.
-- Habla con empatía, precisión y claridad.
-- No inventes datos nuevos sobre el usuario.
+- Usa memoria real, no inventes datos nuevos.
+- Habla con empatía.
 """
 
-        # 6) LLM — respuesta cruda
+        # 6) LLM
         resp = self.client.responses.create(
             model="gpt-4o-mini",
             input=[
@@ -125,21 +107,25 @@ Reglas:
             ],
         )
 
-        raw_answer = resp.output_text.strip()
+        raw_answer = (resp.output_text or "").strip()
 
-        # 7) ACCIONES
+        # 7) ACTION ENGINE
         action_result = self.actions.handle(
             intent=intent,
             user_msg=user_msg,
             context=ctx,
             memory=self.memory,
-            user_id=user_id,
         )
 
+        # 🔥 PARCHE: acción_result = {} siempre
+        if action_result is None:
+            action_result = {"final": None, "action": None}
+
+        # Acción destructiva
         action = action_result.get("action")
         final_answer = action_result.get("final") or raw_answer
 
-        # 8) VALIDACIÓN
+        # Confirmación
         destructive_map = {
             "delete_all_reminders": "¿Quieres eliminar *todos* tus recordatorios?",
             "delete_category": "¿Eliminar los recordatorios de esa categoría?",
@@ -150,81 +136,56 @@ Reglas:
 
         confirms = ["sí", "si", "ok", "dale", "hazlo", "lo confirmo", "confirmo", "está bien", "esta bien"]
 
-        # Usuario confirma
         if self.pending_action and user_msg.lower() in confirms:
             act = self.pending_action
             act["payload"]["confirmed"] = True
             self.pending_action = None
 
-            # Guardar memoria de la interacción
             self.memory.add_dialog(user_id, "user", user_msg)
             self.memory.add_dialog(user_id, "assistant", "Perfecto, lo hago ahora.")
 
-            return {
-                "final": "Perfecto, lo hago ahora.",
-                "action": act,
-                "voice_id": voice_id,
-            }
+            return {"final": "Perfecto, lo hago ahora.", "action": act, "voice_id": voice_id}
 
-        # Acción destructiva detectada
         if action and action["type"] in destructive_map:
             self.pending_action = action
+            return {"final": destructive_map[action["type"]], "action": None, "voice_id": voice_id}
 
-            return {
-                "final": destructive_map[action["type"]],
-                "action": None,
-                "voice_id": voice_id,
-            }
-
-        # 9) GUARDAR MEMORIA (seguro)
+        # 8) GUARDAR MEMORIA
         self.memory.add_dialog(user_id, "user", user_msg)
         self.memory.add_dialog(user_id, "assistant", final_answer)
 
-        # Semántica
         self.memory.add_semantic(user_id, f"user: {user_msg}")
         self.memory.add_semantic(user_id, f"assistant: {final_answer}")
 
-        # Extraer hechos (ej: “mi novia se llama…”, “vivo en…”)
-        extracted = self.extractor.extract_facts(user_msg)
-        for fact in extracted:
-            self.memory.add_fact(user_id, fact)
+        facts = self.extractor.extract_facts(user_msg)
+        for f in facts:
+            self.memory.add_fact(user_id, f)
 
-        # 10) LÍMITE POR PERSONALIDAD
-        if length == "corto":
-            if "." in final_answer:
-                final_answer = final_answer.split(".")[0].strip() + "."
+        # 9) LIMITAR RESPUESTA SEGÚN PERSONALIDAD
+        if length == "corto" and "." in final_answer:
+            final_answer = final_answer.split(".")[0].strip() + "."
 
-        # 11) RESULTADO FINAL
-                return {
-            "intent": intent,
-            "raw": raw_answer,
-            "final": final_answer,
+        # 10) 🔥 PARCHE FINAL — NUNCA devolver None
+        return {
+            "intent": intent or "other",
+            "raw": raw_answer or "",
+            "final": final_answer or "Lo siento, tuve un problema para responder 💜",
             "action": action,
             "voice_id": voice_id,
         }
 
     # -------------------------------------------------------------
-    # 🔐 Asignar el UID del usuario activo desde WebSocket
+    # UID DESDE WS
     # -------------------------------------------------------------
     def set_user_uid(self, uid: str):
-        """
-        Permite al motor de memoria cargar el perfil correcto
-        cuando llega un UID desde WebSocket.
-        """
         if not uid:
             return
 
         try:
-            # Guardar UID en el contexto global
             self.context.set_user_uid(uid)
-
-            # Precargar memoria → reduce la latencia de think()
             self.memory.get_user_profile(uid)
             self.memory.get_facts(uid)
             self.memory.get_recent_dialog(uid)
-
             print(f"UID detectado por AuriMind: {uid}")
-
         except Exception as e:
             print(f"⚠ No se pudo establecer usuario activo en AuriMind: {e}")
-
