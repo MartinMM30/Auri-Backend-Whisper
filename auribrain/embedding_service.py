@@ -1,52 +1,50 @@
-# auribrain/embedding_service.py
-
-import datetime
 from openai import OpenAI
-from auribrain.memory_db import memory_vectors
+from pymongo import MongoClient
+import os
+
+MONGO_URI = os.getenv("MONGO_URI")
+mongo = MongoClient(MONGO_URI)
+db = mongo["auri_db"]
+memory_vectors = db["memory_vectors"]
+
+client = OpenAI()
 
 class EmbeddingService:
-    def __init__(self):
-        self.client = OpenAI()
 
-    # ---------------------------------------------
-    # Crear embedding y guardarlo
-    # ---------------------------------------------
-    def save_memory(self, user_id: str, text: str):
-        emb = self.client.embeddings.create(
+    def embed(self, text: str):
+        res = client.embeddings.create(
             model="text-embedding-3-small",
-            input=text,
+            input=text
         )
+        return [float(x) for x in res.data[0].embedding]
 
-        vec = emb.data[0].embedding
+    def add(self, user_id: str, text: str):
+        vec = self.embed(text)
 
         memory_vectors.insert_one({
             "user_id": user_id,
             "text": text,
-            "vector": vec,
-            "ts": datetime.datetime.utcnow()
+            "embedding": vec
         })
 
-    # ---------------------------------------------
-    # Buscar memorias relacionadas
-    # ---------------------------------------------
-    def search(self, user_id: str, query: str, limit: int = 5):
-        emb = self.client.embeddings.create(
-            model="text-embedding-3-small",
-            input=query
-        )
-        q_vec = emb.data[0].embedding
+    def search(self, user_id: str, query: str):
+        qvec = self.embed(query)
 
         pipeline = [
-            {"$match": {"user_id": user_id}},
             {
                 "$vectorSearch": {
-                    "queryVector": q_vec,
-                    "path": "vector",
-                    "limit": limit
+                    "index": "memory_vectors_index",
+                    "path": "embedding",
+                    "queryVector": qvec,
+                    "numCandidates": 100,
+                    "limit": 5,
+                    "filter": {"user_id": user_id}
                 }
+            },
+            {
+                "$project": {"text": 1, "_id": 0}
             }
         ]
 
         results = memory_vectors.aggregate(pipeline)
-
-        return [r["text"] for r in results]
+        return [r.get("text", "") for r in results]

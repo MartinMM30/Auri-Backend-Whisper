@@ -6,6 +6,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from api_router import router as api_router
 from realtime.realtime_ws import router as realtime_router
 from dotenv import load_dotenv
+from auribrain.memory_router import router as memory_router
+
+
 load_dotenv()
 
 
@@ -20,6 +23,10 @@ app.add_middleware(
 
 app.include_router(api_router, prefix="/api")
 app.include_router(realtime_router)
+app.include_router(api_router, prefix="/api")
+app.include_router(memory_router, prefix="/api")   # ← NUEVO
+app.include_router(realtime_router)
+
 
 @app.get("/")
 def home():
