@@ -2,10 +2,21 @@ fastapi
 uvicorn[standard]
 openai
 python-multipart
-tzdata
 pydantic
 pydantic-settings
+python-dateutil
+aiofiles
 websockets
 wsproto
-aiofiles
-python-dateutil
+tzdata
+
+# --- MongoDB (obligatorio para memoria V6) ---
+pymongo[srv]
+dnspython
+
+# --- Realtime / WebSocket protocols ---
+anyio
+starlette
+
+# --- Audio / TTS streaming ---
+requests
