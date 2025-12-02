@@ -4,6 +4,9 @@ from typing import Optional, List, Dict, Any
 
 from auribrain.auri_singleton import auri
 from realtime.realtime_broadcast import realtime_broadcast
+from auribrain.memory_db import users
+from datetime import datetime
+
 
 router = APIRouter()
 
@@ -91,6 +94,21 @@ async def context_sync(req: ContextUpdateRequest):
     # USER
     if req.user and "name" in req.user:
         ctx.set_user(req.user)
+        firebase_uid = req.user.get("firebase_uid") if req.user else None
+        if firebase_uid:
+            users.update_one(
+                {"_id": firebase_uid},
+                {
+                    "$set": {
+                        "name": req.user.get("name"),
+                        "city": req.user.get("city"),
+                        "occupation": req.user.get("occupation"),
+                        "birthday": req.user.get("birthday"),
+                        "updated_at": datetime.utcnow()
+                    }
+                },
+                upsert=True
+            )
     else:
         blocks_ok = False
 
