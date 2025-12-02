@@ -159,7 +159,7 @@ Reglas:
         self.memory.add_semantic(user_id, f"user: {user_msg}")
         self.memory.add_semantic(user_id, f"assistant: {final_answer}")
 
-        facts_detected = self.extractor.extract_facts(user_msg)
+        facts_detected = extract_facts(user_msg)
         for fact in facts_detected:
             self.memory.add_fact_structured(user_id, fact)
 
