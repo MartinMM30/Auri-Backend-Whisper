@@ -15,6 +15,7 @@ class ContextEngine:
             "city": None,
             "birthday": None,
             "occupation": None,
+            "firebase_uid": None,   # 🔥 Ahora sí lo incluimos
         }
 
         # WEATHER
@@ -38,25 +39,33 @@ class ContextEngine:
             "personality": "auri_classic",
         }
 
-        # TIMEZONE (🔥 requerido por Auri)
+        # TIMEZONE
         self.tz = "UTC"
 
-        # HORA LOCAL DEL DISPOSITIVO
+        # TIME INFO
         self.current_time_iso = None
         self.current_time_pretty = None
         self.current_date_pretty = None
 
-        # READY FLAG
         self.ready_flag = False
+
+
+    # ---------------------------------------------------------
+    # 🔐 Registrar UID del usuario real desde WebSocket
+    # ---------------------------------------------------------
     def set_user_uid(self, uid: str):
         self._active_uid = uid
+        self.user["firebase_uid"] = uid  # 🔥 CRÍTICO
+        print(f"[ContextEngine] UID registrado en contexto: {uid}")
 
     def get_user_uid(self):
         return self._active_uid
 
+
     # =====================================================
     def attach_memory(self, memory):
         self.memory = memory
+
 
     # =====================================================
     # SETTERS
@@ -72,6 +81,10 @@ class ContextEngine:
         for k in ["name", "city", "birthday", "occupation"]:
             if k in data:
                 self.user[k] = data[k]
+
+        # 🔥 NO borrar uid si Flutter no lo manda
+        if "firebase_uid" in data and data["firebase_uid"]:
+            self.user["firebase_uid"] = data["firebase_uid"]
 
     def set_events(self, events):
         self.events = events or []
@@ -93,7 +106,6 @@ class ContextEngine:
             if k in prefs:
                 self.prefs[k] = prefs[k]
 
-    # 🔥 NUEVOS SETTERS IMPORTANTES
     def set_timezone(self, tz: str):
         self.tz = tz
 
@@ -104,6 +116,7 @@ class ContextEngine:
             self.current_time_pretty = pretty
         if date:
             self.current_date_pretty = date
+
 
     # =====================================================
     # READY CONTROL
@@ -117,8 +130,9 @@ class ContextEngine:
     def invalidate(self):
         self.ready_flag = False
 
+
     # =====================================================
-    # FINAL PAYLOAD (para el LLM)
+    # FINAL PAYLOAD PARA AURIMIND
     # =====================================================
     def get_daily_context(self):
         return {
