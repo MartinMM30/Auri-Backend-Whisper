@@ -1,23 +1,37 @@
+# auribrain/actions_engine.py
+
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Dict, Any
+
 from auribrain.entity_extractor import EntityExtractor, ExtractedReminder
+
+
+# 🔒 Solo estas acciones pueden salir por el WS
+SAFE_ACTION_TYPES = {
+    "create_reminder",
+    "delete_reminder",
+    "edit_reminder",
+    "open_reminders_list",
+}
 
 
 class ActionsEngine:
     """
     Procesa intents y devuelve:
-      - final: texto para el usuario
-      - action: instrucción para Flutter
+      - final: texto para el usuario (string)
+      - action: dict seguro para Flutter (o None)
     """
 
     def __init__(self):
         self.extractor = EntityExtractor()
 
-    # ==============================================================  
-    # ENTRY POINT  
-    # ==============================================================  
-    def handle(self, intent: str, user_msg: str, context: dict, memory):
-        
+    # ==============================================================
+    # ENTRY POINT
+    # ==============================================================
+    def handle(self, intent: str, user_msg: str, context: Dict[str, Any], memory):
+        """
+        context aquí SIEMPRE es un dict (viene de get_daily_context()).
+        """
         if intent == "reminder.create":
             return self._handle_create_reminder(user_msg)
 
@@ -32,75 +46,107 @@ class ActionsEngine:
 
         return {"final": None, "action": None}
 
-    # ==============================================================  
-    # QUERY REMINDERS  
-    # ==============================================================  
-    def _handle_query_reminders(self, context: dict):
+    # ==============================================================
+    # UTILIDAD: CONSTRUIR ACCIONES SEGURAS
+    # ==============================================================
+    def _make_action(self, action_type: str, payload: Optional[Dict[str, Any]] = None):
+        """
+        Centraliza la creación de acciones:
+        - Solo deja pasar tipos incluidos en SAFE_ACTION_TYPES
+        - Garantiza que lo que se envía por WS sea serializable
+        """
+        if action_type not in SAFE_ACTION_TYPES:
+            # Si algún día ponemos un tipo nuevo y se nos olvida agregarlo al
+            # whitelist, simplemente no se envía y no rompe nada.
+            return None
 
-        events = context.get("events", [])  # FIX: dict-access
+        return {
+            "type": action_type,
+            "payload": payload or {},
+        }
+
+    # ==============================================================
+    # QUERY REMINDERS
+    # ==============================================================
+    def _handle_query_reminders(self, context: Dict[str, Any]):
+        events = context.get("events", []) or []
 
         if not events:
             return {
                 "final": "No tienes recordatorios próximos.",
-                "action": None
+                "action": None,
             }
 
         # Tomamos solo próximos 5
-        titles = [e["title"] for e in events[:5]]
+        titles = [str(e.get("title", "")) for e in events[:5] if e.get("title")]
+        if not titles:
+            return {
+                "final": "No pude leer bien tus recordatorios, pero sé que tienes algunos próximos.",
+                "action": None,
+            }
 
         formatted = "\n- " + "\n- ".join(titles)
 
         return {
             "final": f"Tienes estos recordatorios próximos:{formatted}",
-            "action": {"type": "open_reminders_list"}
+            # 👉 Acción lista para Flutter (si ya tienes la pantalla)
+            "action": self._make_action("open_reminders_list"),
         }
 
-    # ==============================================================  
-    # CREATE REMINDER  
-    # ==============================================================  
+    # ==============================================================
+    # CREATE REMINDER
+    # ==============================================================
     def _handle_create_reminder(self, user_msg: str):
-
         now = datetime.utcnow()
 
         try:
-            parsed: Optional[ExtractedReminder] = \
-                self.extractor.extract_reminder(user_msg, now=now)
+            parsed: Optional[ExtractedReminder] = self.extractor.extract_reminder(
+                user_msg, now=now
+            )
         except Exception:
             parsed = None
 
         if not parsed:
             return {
-                "final": "No logré entender la fecha del recordatorio. ¿Puedes repetirlo con fecha y hora?",
-                "action": None
+                "final": (
+                    "No logré entender bien la fecha del recordatorio. "
+                    "¿Puedes repetirlo con día y hora?"
+                ),
+                "action": None,
             }
 
         if not parsed.datetime:
             return {
-                "final": f"Entendí que deseas recordar “{parsed.title}”. ¿Para qué día y hora lo programo?",
-                "action": None
+                "final": (
+                    f"Entendí que deseas recordar “{parsed.title}”. "
+                    "¿Para qué día y hora lo programo?"
+                ),
+                "action": None,
             }
 
         dt = parsed.datetime
         dt_iso = dt.isoformat()
 
         return {
-            "final": f"Perfecto, te recuerdo “{parsed.title}” el {dt.strftime('%d/%m a las %H:%M')}.",
-            "action": {
-                "type": "create_reminder",
-                "payload": {
+            "final": (
+                f"Perfecto, te recuerdo “{parsed.title}” "
+                f"el {dt.strftime('%d/%m a las %H:%M')}."
+            ),
+            "action": self._make_action(
+                "create_reminder",
+                {
                     "title": parsed.title,
                     "datetime": dt_iso,
                     "kind": parsed.kind,
                     "repeats": parsed.repeats,
                 },
-            },
+            ),
         }
 
-    # ==============================================================  
-    # DELETE REMINDER  
-    # ==============================================================  
+    # ==============================================================
+    # DELETE REMINDER
+    # ==============================================================
     def _handle_delete_reminder(self, user_msg: str):
-
         try:
             parsed = self.extractor.extract_reminder(user_msg)
         except Exception:
@@ -108,13 +154,20 @@ class ActionsEngine:
 
         title = parsed.title if parsed and parsed.title else None
 
-        # FALLBACKS…
+        # Fallback 1: texto después del verbo
         if not title:
             lowered = user_msg.lower()
             triggers = [
-                "quita ", "borra ", "elimina ",
-                "quiero quitar ", "quiero borrar ", "quiero eliminar ",
-                "quita el ", "quita la ", "elimina el ", "elimina la "
+                "quita ",
+                "borra ",
+                "elimina ",
+                "quiero quitar ",
+                "quiero borrar ",
+                "quiero eliminar ",
+                "quita el ",
+                "quita la ",
+                "elimina el ",
+                "elimina la ",
             ]
             for t in triggers:
                 if t in lowered:
@@ -122,34 +175,65 @@ class ActionsEngine:
                     title = user_msg[idx:].strip()
                     break
 
+        # Fallback 2: palabras clave de pagos/genéricos
+        if not title:
+            keywords = [
+                "agua",
+                "luz",
+                "internet",
+                "teléfono",
+                "telefono",
+                "renta",
+                "alquiler",
+                "gato",
+                "perro",
+                "tarea",
+                "examen",
+                "pago",
+                "recordatorio",
+            ]
+            l = user_msg.lower()
+            for k in keywords:
+                if k in l:
+                    title = k
+                    break
+
+        # Aún nada → pregunta
         if not title:
             return {
-                "final": "¿Qué recordatorio deseas quitar?",
-                "action": None
+                "final": "¿Qué recordatorio deseas quitar exactamente?",
+                "action": None,
             }
 
         clean_title = title.strip()
 
         return {
             "final": f"De acuerdo, intento eliminar “{clean_title}”.",
-            "action": {
-                "type": "delete_reminder",
-                "payload": {"title": clean_title}
-            },
+            "action": self._make_action(
+                "delete_reminder",
+                {"title": clean_title},
+            ),
         }
 
-    # ==============================================================  
-    # EDIT REMINDER  
-    # ==============================================================  
-    def _handle_edit_reminder(self, user_msg: str, context: dict):
+    # ==============================================================
+    # EDIT REMINDER (placeholder seguro)
+    # ==============================================================
+    def _handle_edit_reminder(self, user_msg: str, context: Dict[str, Any]):
         """
         FUTURO:
-        “Cambia el recordatorio de estudiar a las 6”
-        “Muévelo para mañana”
+        - “Cambia el recordatorio de estudiar a las 6”
+        - “Muévelo para mañana a las 8”
         """
 
-        # TEMPORAL: placeholder para que no crashee
+        # Aquí luego:
+        # 1) Buscar candidato en context["events"]
+        # 2) Volver a llamar a EntityExtractor para la nueva fecha/hora
+        # 3) Enviar action = edit_reminder con {oldTitle, newTitle, datetime, repeats}
+
         return {
-            "final": "¿Qué cambio deseas hacer exactamente en el recordatorio?",
-            "action": None
+            "final": (
+                "Por ahora solo puedo mostrar y crear recordatorios. "
+                "Pronto podré editar recordatorios por voz también."
+            ),
+            "action": None,
         }

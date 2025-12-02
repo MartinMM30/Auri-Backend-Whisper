@@ -1,3 +1,5 @@
+# realtime/realtime_ws.py
+
 import io
 import json
 import logging
@@ -17,6 +19,14 @@ client = AsyncOpenAI()
 STT_MODEL = "whisper-1"
 TTS_MODEL = "gpt-4o-mini-tts"
 SAMPLE_RATE = 16000
+
+# 🔒 MISMO WHITELIST QUE EN ActionsEngine
+SAFE_ACTION_TYPES = {
+    "create_reminder",
+    "delete_reminder",
+    "edit_reminder",
+    "open_reminders_list",
+}
 
 
 # PCM → WAV
@@ -108,6 +118,36 @@ async def handle_json(ws: WebSocket, session: RealtimeSession, msg: dict):
 
 
 # ============================================================
+# HELPER: ENVÍO SEGURO DE ACCIONES
+# ============================================================
+async def _safe_send_action(ws: WebSocket, action: dict):
+    """
+    - Verifica que action sea dict
+    - Verifica que tenga un 'type' permitido
+    - Evita que un bug rompa el WS
+    """
+    if not isinstance(action, dict):
+        logger.warning(f"⚠ Acción inválida (no dict): {action}")
+        return
+
+    a_type = action.get("type")
+    if a_type not in SAFE_ACTION_TYPES:
+        logger.warning(f"⚠ Acción ignorada (no segura): {action}")
+        return
+
+    payload = action.get("payload") or {}
+
+    try:
+        await ws.send_json({
+            "type": "action",
+            "action": a_type,
+            "payload": payload,
+        })
+    except Exception as e:
+        logger.exception(f"🔥 Error enviando acción por WS: {e}")
+
+
+# ============================================================
 # PIPELINE STT → THINK → ACTION → TTS
 # ============================================================
 async def process_stt_tts(ws: WebSocket, session: RealtimeSession):
@@ -121,9 +161,7 @@ async def process_stt_tts(ws: WebSocket, session: RealtimeSession):
     wav.name = "audio.wav"
 
     try:
-        # -----------------------------
         # STT
-        # -----------------------------
         stt = await client.audio.transcriptions.create(
             model=STT_MODEL,
             file=wav,
@@ -131,50 +169,46 @@ async def process_stt_tts(ws: WebSocket, session: RealtimeSession):
         text = (getattr(stt, "text", "") or "").strip()
         logger.info("📝 Texto STT: %s", text)
 
-        # -----------------------------
         # THINK
-        # -----------------------------
         think_res = auri.think(text)
-        reply_text = think_res["final"] or think_res["raw"]
-        action = think_res["action"]
+        reply_text = think_res.get("final") or think_res.get("raw") or ""
+        action = think_res.get("action")
 
         logger.info("🧠 Auri reply: %s", reply_text)
 
-        # -----------------------------
         # TTS
-        # -----------------------------
         await send_tts(ws, reply_text)
 
-        # -----------------------------
-        # FIX: ENVÍO DE ACCIONES
-        # -----------------------------
+        # ACTION (segura)
         if action:
-            await ws.send_json({
-                "type": "action",
-                "action": action.get("type"),
-                "payload": action.get("payload")
-            })
+            await _safe_send_action(ws, action)
 
     except Exception as e:
         logger.exception("🔥 Error en pipeline STT→LLM→TTS: %s", e)
-        await ws.send_json({"type": "reply_final", "text": "Hubo un problema procesando tu voz."})
+        await ws.send_json({
+            "type": "reply_final",
+            "text": "Hubo un problema procesando tu voz."
+        })
 
     session.clear()
 
 
 async def process_text_only(ws: WebSocket, text: str):
-    think_res = auri.think(text)
-    reply_text = think_res["final"] or think_res["raw"]
-    action = think_res["action"]
+    try:
+        think_res = auri.think(text)
+        reply_text = think_res.get("final") or think_res.get("raw") or ""
+        action = think_res.get("action")
 
-    await send_tts(ws, reply_text)
+        await send_tts(ws, reply_text)
 
-    # FIX: enviar acción
-    if action:
+        if action:
+            await _safe_send_action(ws, action)
+
+    except Exception as e:
+        logger.exception("🔥 Error en pipeline TEXT→LLM→TTS: %s", e)
         await ws.send_json({
-            "type": "action",
-            "action": action.get("type"),
-            "payload": action.get("payload")
+            "type": "reply_final",
+            "text": "Hubo un problema procesando tu mensaje."
         })
 
 
@@ -187,7 +221,6 @@ async def send_tts(ws: WebSocket, text: str, voice_id: str = "alloy"):
     await ws.send_json({"type": "reply_final", "text": text})
 
     try:
-        # IMPORTANTE: SIN sample_rate
         async with client.audio.speech.with_streaming_response.create(
             model=TTS_MODEL,
             voice=voice_id,
