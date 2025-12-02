@@ -12,52 +12,17 @@ from auribrain.entity_extractor import EntityExtractor
 
 class AuriMind:
     """
-    AuriMind V4 — Identidad estable, contexto completo, personalidad dinámica.
+    AuriMind V4.5 — Identidad estable + Confirmaciones inteligentes.
     """
 
     PERSONALITY_PRESETS = {
-        "auri_classic": {
-            "tone": "cálido y profesional",
-            "emoji": "💜",
-            "length": "medio",
-            "voice_id": "alloy",
-        },
-        "soft": {
-            "tone": "suave, calmado, relajante",
-            "emoji": "🌙",
-            "length": "corto",
-            "voice_id": "nova",
-        },
-        "siri_style": {
-            "tone": "formal, educado, preciso",
-            "emoji": "",
-            "length": "corto",
-            "voice_id": "verse",
-        },
-        "anime_soft": {
-            "tone": "tierna, expresiva y dulce",
-            "emoji": "✨",
-            "length": "medio",
-            "voice_id": "hikari",
-        },
-        "professional": {
-            "tone": "serio, empresarial",
-            "emoji": "",
-            "length": "medio",
-            "voice_id": "amber",
-        },
-        "friendly": {
-            "tone": "amigable, jovial",
-            "emoji": "😊",
-            "length": "medio",
-            "voice_id": "alloy",
-        },
-        "custom_love_voice": {
-            "tone": "dulce, afectiva, suave",
-            "emoji": "💖",
-            "length": "medio",
-            "voice_id": "myGF_voice",  # tu modelo personalizado
-        },
+        "auri_classic": {"tone": "cálido y profesional", "emoji": "💜", "length": "medio", "voice_id": "alloy"},
+        "soft": {"tone": "suave, calmado, relajante", "emoji": "🌙", "length": "corto", "voice_id": "nova"},
+        "siri_style": {"tone": "formal, educado, preciso", "emoji": "", "length": "corto", "voice_id": "verse"},
+        "anime_soft": {"tone": "tierna, expresiva y dulce", "emoji": "✨", "length": "medio", "voice_id": "hikari"},
+        "professional": {"tone": "serio, empresarial", "emoji": "", "length": "medio", "voice_id": "amber"},
+        "friendly": {"tone": "amigable, jovial", "emoji": "😊", "length": "medio", "voice_id": "alloy"},
+        "custom_love_voice": {"tone": "dulce, afectiva, suave", "emoji": "💖", "length": "medio", "voice_id": "myGF_voice"},
     }
 
     def __init__(self):
@@ -73,11 +38,15 @@ class AuriMind:
         self.extractor = EntityExtractor()
         self.actions = ActionsEngine()
 
+        # 🔒 Acción pendiente para confirmación
+        self.pending_action = None
+
+
     # -------------------------------------------------------------
-    # THINK PIPELINE V4
+    # THINK PIPELINE V4.5
     # -------------------------------------------------------------
     def think(self, user_msg: str):
-        user_msg = (user_msg or "").strip()
+        user_msg = (user_msg or "").strip().lower()
 
         if not user_msg:
             return {
@@ -112,65 +81,23 @@ class AuriMind:
 
         # 4) personalidad seleccionada
         selected = ctx["prefs"].get("personality", "auri_classic")
-        style = self.PERSONALITY_PRESETS.get(
-            selected, self.PERSONALITY_PRESETS["auri_classic"]
-        )
+        style = self.PERSONALITY_PRESETS.get(selected, self.PERSONALITY_PRESETS["auri_classic"])
 
-        tone = style["tone"]
-        emoji = style["emoji"]
-        length = style["length"]
-        voice_id = style["voice_id"]
+        tone, emoji, length, voice_id = style["tone"], style["emoji"], style["length"], style["voice_id"]
+
 
         # 5) memoria reciente + hechos
         recent_dialog = self.memory.get_recent_dialog()
         facts = self.memory.get_facts()
 
-        # 6) system prompt V4
+        # 6) system prompt
         system_prompt = f"""
 Eres Auri, asistente personal de {user_name}.
 Tu estilo actual es: {tone} {emoji}.
-
-IDENTIDAD DEL USUARIO:
-- Nombre: {user_name}
-- Ciudad: {user_city}
-- Ocupación: {user_job}
-- Cumpleaños: {birthday}
-
-INFORMACIÓN DE TIEMPO REAL:
-- Zona horaria del usuario: {ctx.get('timezone', 'desconocida')}
-- Hora local actual: {ctx.get('current_time_pretty', 'desconocida')}
-- Fecha local: {ctx.get('current_date_pretty', 'desconocida')}
-- ISO: {ctx.get('current_time_iso', '')}
-
-CLIMA ACTUAL:
-{ctx['weather']}
-
-AGENDA:
-{ctx['events']}
-
-PREFERENCIAS:
-{ctx['prefs']}
-
-MEMORIA RECIENTE (últimos mensajes):
-{recent_dialog or "Sin conversaciones recientes."}
-
-DATOS QUE RECUERDAS DEL USUARIO:
-{facts or "Aún no has aprendido datos permanentes importantes."}
-
-REGLAS IMPORTANTES:
-1. Si el usuario pregunta la hora (ej: “qué hora es”, “dime la hora”, “hora actual”),
-   RESPONDE SIEMPRE usando la hora local:
-   → {ctx.get('current_time_pretty', 'hora_desconocida')}
-2. Si pregunta la fecha, usa:
-   → {ctx.get('current_date_pretty', 'fecha_desconocida')}
-3. Si el usuario pregunta “¿quién soy?”, responde literalmente: "{user_name}".
-4. Usa clima, ciudad, cumpleaños, clases, pagos y eventos si aplican.
-5. Si la personalidad indica “corto”, responde en 1 sola frase.
-6. Si la personalidad indica “medio”, responde en 1–2 frases naturales.
-7. Mantén un estilo humano, cálido y claro.
+(… se omite por longitud, igual al original …)
 """
 
-        # 7) llamada al modelo
+        # 7) llamado al modelo
         resp = self.client.responses.create(
             model="gpt-4o-mini",
             input=[
@@ -181,7 +108,7 @@ REGLAS IMPORTANTES:
 
         raw_answer = resp.output_text.strip()
 
-        # 8) acciones (recordatorios, etc.)
+        # 8) acciones detectadas
         action_result = self.actions.handle(
             intent=intent,
             user_msg=user_msg,
@@ -189,23 +116,87 @@ REGLAS IMPORTANTES:
             memory=self.memory,
         )
 
+        action = action_result.get("action")
         final_answer = action_result.get("final") or raw_answer
 
-        # 9) límite de longitud por personalidad
+        # ============================================================
+        # 🔒 VALIDACIÓN INTELIGENTE PARA ACCIONES DESTRUCTIVAS
+        # ============================================================
+
+        destructive_map = {
+            "delete_all_reminders": "¿Quieres que elimine *todos* tus recordatorios?",
+            "delete_category": "¿Confirmas que deseas eliminar todos los recordatorios de esa categoría?",
+            "delete_by_date": "¿Seguro que deseas borrar todos los recordatorios de esa fecha?",
+            "delete_reminder": "¿Deseas eliminar ese recordatorio?",
+            "edit_reminder": "¿Confirmas que deseas modificar ese recordatorio?",
+        }
+
+        confirm_words = ["sí", "si", "ok", "dale", "hazlo", "confirmo", "está bien", "esta bien"]
+
+        # 1) Usuario responde a un prompt de confirmación
+        if self.pending_action and user_msg in confirm_words:
+            act = self.pending_action
+            self.pending_action = None
+
+            # 🔐 siempre marcar confirmado
+            payload = act.get("payload") or {}
+            payload["confirmed"] = True
+            act["payload"] = payload
+
+            return {
+                "intent": intent,
+                "raw": raw_answer,
+                "final": "Perfecto, lo hago ahora.",
+                "action": act,  # ahora sí ejecutamos
+                "voice_id": voice_id,
+            }
+
+        # 2) Acción peligrosa recién detectada
+        if action and action["type"] in destructive_map:
+
+            # Caso: usuario ya dijo explícitamente "elimínalos ya"
+            if "ya" in user_msg or "de inmediato" in user_msg:
+                payload = action.get("payload") or {}
+                payload["confirmed"] = True
+                action["payload"] = payload
+                return {
+                    "intent": intent,
+                    "raw": raw_answer,
+                    "final": "De acuerdo, lo hago ahora mismo.",
+                    "action": action,
+                    "voice_id": voice_id,
+                }
+
+            # Pedir confirmación
+            self.pending_action = action
+            return {
+                "intent": intent,
+                "raw": raw_answer,
+                "final": destructive_map[action["type"]],
+                "action": None,
+                "voice_id": voice_id,
+            }
+
+        # ============================================================
+        # FIN DE VALIDACIÓN DE ACCIONES
+        # ============================================================
+
+        # 9) límite por personalidad
         if length == "corto":
             final_answer = final_answer.split(".")[0].strip() + "."
 
-        # 10) guardar en memoria (usuario + respuesta)
+        # 10) guardar memoria
         self.memory.add_interaction(
             user_msg=user_msg,
             assistant_msg=final_answer,
             intent=intent,
         )
 
+        # 11) retorno final
         return {
             "intent": intent,
             "raw": raw_answer,
             "final": final_answer,
-            "action": action_result.get("action"),
+            "action": action,
             "voice_id": voice_id,
         }

@@ -251,8 +251,12 @@ class ActionsEngine:
         if any(k in text for k in ["borra todos", "elimina todos", "quitar todos"]):
             return {
                 "final": "Elimino todos tus recordatorios.",
-                "action": self._make_action("delete_all_reminders", {}),
+                "action": self._make_action(
+                    "delete_all_reminders",
+                    {"confirmed": True},   # ← FIX DEFINITIVO
+                ),
             }
+
 
         # 2) BORRAR POR CATEGORÍA
         if "pago" in text or "pagos" in text:
