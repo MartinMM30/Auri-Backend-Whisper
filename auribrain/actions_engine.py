@@ -60,12 +60,14 @@ class ActionsEngine:
     # ENTRY POINT
     # ==============================================================
     def handle(
-        self,
-        intent: str,
-        user_msg: str,
-        context: Dict[str, Any],
-        memory,
-    ):
+    self,
+    user_id: str = None,
+    intent: str = None,
+    user_msg: str = None,
+    context: Dict[str, Any] = None,
+    memory=None,
+):
+
         # context aquí SIEMPRE es un dict (viene de get_daily_context()).
 
         if intent == "reminder.create":
