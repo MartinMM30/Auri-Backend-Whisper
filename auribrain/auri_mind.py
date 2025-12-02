@@ -12,7 +12,7 @@ from auribrain.entity_extractor import EntityExtractor
 
 class AuriMind:
     """
-    AuriMind V4.5 — Identidad estable + Confirmaciones inteligentes.
+    AuriMind V5 — Identidad estable + Confirmaciones inteligentes + Hands-Free Mode.
     """
 
     PERSONALITY_PRESETS = {
@@ -38,165 +38,133 @@ class AuriMind:
         self.extractor = EntityExtractor()
         self.actions = ActionsEngine()
 
-        # 🔒 Acción pendiente para confirmación
+        # Acción destructiva pendiente
         self.pending_action = None
 
 
     # -------------------------------------------------------------
-    # THINK PIPELINE V4.5
+    # THINK PIPELINE V5
     # -------------------------------------------------------------
     def think(self, user_msg: str):
-        user_msg = (user_msg or "").strip().lower()
+        raw_user_msg = user_msg.strip()
+        user_msg = raw_user_msg.lower()
 
         if not user_msg:
             return {
                 "intent": "unknown",
                 "raw": "",
-                "final": "No logré escucharte bien, ¿puedes repetirlo?",
+                "final": "No te escuché bien, ¿puedes repetirlo?",
                 "action": None,
                 "voice_id": "alloy",
             }
 
-        # 0) Contexto estricto
+        # 0) Context
         if not self.context.is_ready():
-            return {
-                "final": "Dame un momento… estoy terminando de cargar tu perfil y agenda.",
-                "intent": "wait",
-                "raw": "",
-                "action": None,
-                "voice_id": "alloy",
-            }
+            return {"final": "Dame un momento… estoy cargando tu información.", "intent": "wait", "raw": "", "action": None, "voice_id": "alloy"}
 
-        # 1) intención
+        # 1) Intent
         intent = self.intent.detect(user_msg)
 
-        # 2) contexto completo
+        # 2) Context
         ctx = self.context.get_daily_context()
 
-        # 3) perfil del usuario
-        user_name = ctx["user"].get("name") or "usuario"
-        user_city = ctx["user"].get("city") or "tu ciudad"
-        user_job = ctx["user"].get("occupation") or ""
-        birthday = ctx["user"].get("birthday") or ""
+        # User profile
+        user_name = ctx["user"].get("name", "usuario")
 
-        # 4) personalidad seleccionada
+        # Voice preset
         selected = ctx["prefs"].get("personality", "auri_classic")
         style = self.PERSONALITY_PRESETS.get(selected, self.PERSONALITY_PRESETS["auri_classic"])
-
         tone, emoji, length, voice_id = style["tone"], style["emoji"], style["length"], style["voice_id"]
 
-
-        # 5) memoria reciente + hechos
-        recent_dialog = self.memory.get_recent_dialog()
-        facts = self.memory.get_facts()
-
-        # 6) system prompt
+        # 3) Build system prompt
         system_prompt = f"""
 Eres Auri, asistente personal de {user_name}.
 Tu estilo actual es: {tone} {emoji}.
-(… se omite por longitud, igual al original …)
+
+Debes responder cálido, humano y claro.
 """
 
-        # 7) llamado al modelo
+        # 4) LLM
         resp = self.client.responses.create(
             model="gpt-4o-mini",
             input=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_msg},
+                {"role": "user", "content": raw_user_msg},
             ],
         )
-
         raw_answer = resp.output_text.strip()
 
-        # 8) acciones detectadas
-        action_result = self.actions.handle(
-            intent=intent,
-            user_msg=user_msg,
-            context=ctx,
-            memory=self.memory,
-        )
+        # 5) Actions
+        action_result = self.actions.handle(intent=intent, user_msg=user_msg, context=ctx, memory=self.memory)
 
         action = action_result.get("action")
         final_answer = action_result.get("final") or raw_answer
 
-        # ============================================================
-        # 🔒 VALIDACIÓN INTELIGENTE PARA ACCIONES DESTRUCTIVAS
-        # ============================================================
+        # ==================================================
+        # 🔥 COMANDOS DE VOZ PARA HANDS-FREE MODE
+        # ==================================================
+        if "modo manos libres" in user_msg or "hands free" in user_msg:
+            if "activa" in user_msg or "enciende" in user_msg:
+                return {
+                    "intent": "handsfree_on",
+                    "raw": raw_answer,
+                    "final": "Perfecto, activé el modo manos libres.",
+                    "action": {
+                        "type": "set_handsfree",
+                        "payload": {"enabled": True}
+                    },
+                    "voice_id": voice_id,
+                }
 
+            if "desactiva" in user_msg or "apaga" in user_msg:
+                return {
+                    "intent": "handsfree_off",
+                    "raw": raw_answer,
+                    "final": "Modo manos libres desactivado.",
+                    "action": {
+                        "type": "set_handsfree",
+                        "payload": {"enabled": False}
+                    },
+                    "voice_id": voice_id,
+                }
+
+        # ==================================================
+        # 🔥 Confirmación inteligente para acciones peligrosas
+        # ==================================================
         destructive_map = {
             "delete_all_reminders": "¿Quieres que elimine *todos* tus recordatorios?",
-            "delete_category": "¿Confirmas que deseas eliminar todos los recordatorios de esa categoría?",
-            "delete_by_date": "¿Seguro que deseas borrar todos los recordatorios de esa fecha?",
+            "delete_category": "¿Eliminar todos los recordatorios de esa categoría?",
+            "delete_by_date": "¿Eliminar los recordatorios de esa fecha?",
             "delete_reminder": "¿Deseas eliminar ese recordatorio?",
             "edit_reminder": "¿Confirmas que deseas modificar ese recordatorio?",
         }
 
         confirm_words = ["sí", "si", "ok", "dale", "hazlo", "confirmo", "está bien", "esta bien"]
 
-        # 1) Usuario responde a un prompt de confirmación
-        if self.pending_action and user_msg in confirm_words:
+        if self.pending_action and user_msg.strip() in confirm_words:
             act = self.pending_action
             self.pending_action = None
 
-            # 🔐 siempre marcar confirmado
-            payload = act.get("payload") or {}
+            payload = act.get("payload", {})
             payload["confirmed"] = True
             act["payload"] = payload
 
-            return {
-                "intent": intent,
-                "raw": raw_answer,
-                "final": "Perfecto, lo hago ahora.",
-                "action": act,  # ahora sí ejecutamos
-                "voice_id": voice_id,
-            }
+            self.memory.add_interaction(user_msg=raw_user_msg, assistant_msg="Perfecto, lo hago ahora.", intent=intent)
 
-        # 2) Acción peligrosa recién detectada
+            return {"intent": intent, "raw": raw_answer, "final": "Perfecto, lo hago ahora.", "action": act, "voice_id": voice_id}
+
         if action and action["type"] in destructive_map:
-
-            # Caso: usuario ya dijo explícitamente "elimínalos ya"
-            if "ya" in user_msg or "de inmediato" in user_msg:
-                payload = action.get("payload") or {}
-                payload["confirmed"] = True
-                action["payload"] = payload
-                return {
-                    "intent": intent,
-                    "raw": raw_answer,
-                    "final": "De acuerdo, lo hago ahora mismo.",
-                    "action": action,
-                    "voice_id": voice_id,
-                }
-
-            # Pedir confirmación
             self.pending_action = action
-            return {
-                "intent": intent,
-                "raw": raw_answer,
-                "final": destructive_map[action["type"]],
-                "action": None,
-                "voice_id": voice_id,
-            }
+            self.memory.add_interaction(user_msg=raw_user_msg, assistant_msg=destructive_map[action["type"]], intent=intent)
+            return {"intent": intent, "raw": raw_answer, "final": destructive_map[action["type"]], "action": None, "voice_id": voice_id}
 
-        # ============================================================
-        # FIN DE VALIDACIÓN DE ACCIONES
-        # ============================================================
+        # ==================================================
+        # Save memory
+        # ==================================================
+        self.memory.add_interaction(user_msg=raw_user_msg, assistant_msg=final_answer, intent=intent)
 
-        # 9) límite por personalidad
+        # Limit length
         if length == "corto":
             final_answer = final_answer.split(".")[0].strip() + "."
 
-        # 10) guardar memoria
-        self.memory.add_interaction(
-            user_msg=user_msg,
-            assistant_msg=final_answer,
-            intent=intent,
-        )
-
-        # 11) retorno final
-        return {
-            "intent": intent,
-            "raw": raw_answer,
-            "final": final_answer,
-            "action": action,
-            "voice_id": voice_id,
-        }
+        return {"intent": intent, "raw": raw_answer, "final": final_answer, "action": action, "voice_id": voice_id}
