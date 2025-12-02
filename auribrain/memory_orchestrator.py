@@ -42,14 +42,29 @@ class MemoryOrchestrator:
     # FACTOS DURADEROS
     # ==================================================
     def add_fact(self, user_id, fact_text):
-        facts.insert_one({
-            "user_id": user_id,
-            "fact": fact_text,
-            "ts": datetime.datetime.utcnow()
+        """
+        Compatibilidad con funciones antiguas.
+        Guarda texto suelto como categoría "other".
+        """
+        self.add_fact_structured(user_id, {
+            "text": fact_text,
+            "category": "other",
+            "importance": 2,
+            "confidence": 0.5
         })
 
+
     def get_facts(self, user_id):
-        return [f["fact"] for f in facts.find({"user_id": user_id})]
+        return [
+    {
+        "text": f.get("text"),
+        "category": f.get("category"),
+        "importance": f.get("importance"),
+        "confidence": f.get("confidence"),
+    }
+    for f in facts.find({"user_id": user_id, "is_active": True})
+]
+
 
     # ==================================================
     # MEMORIA SEMÁNTICA (EMBEDDINGS)
@@ -82,3 +97,36 @@ class MemoryOrchestrator:
 
     def update_user_profile(self, user_id: str, data: dict):
         users.update_one({"_id": user_id}, {"$set": data}, upsert=True)
+    def add_fact_structured(self, user_id: str, fact: dict):
+        """
+        Guarda un hecho estructurado:
+        - text
+        - category
+        - importance
+        - confidence
+        """
+
+        doc = {
+            "user_id": user_id,
+            "text": fact.get("text"),
+            "category": fact.get("category", "other"),
+            "importance": fact.get("importance", 3),
+            "confidence": fact.get("confidence", 0.8),
+            "created_at": datetime.datetime.utcnow(),
+            "updated_at": datetime.datetime.utcnow(),
+            "is_active": True,
+        }
+
+        # Evitar duplicados exactos
+        exists = facts.find_one({
+            "user_id": user_id,
+            "text": doc["text"],
+            "category": doc["category"],
+            "is_active": True
+        })
+
+        if exists:
+            return  # no guardar duplicados exactos
+
+        facts.insert_one(doc)
+

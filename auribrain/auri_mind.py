@@ -9,6 +9,8 @@ from auribrain.response_engine import ResponseEngine
 from auribrain.actions_engine import ActionsEngine
 from auribrain.entity_extractor import EntityExtractor
 from auribrain.memory_orchestrator import MemoryOrchestrator
+from auribrain.fact_extractor import extract_facts
+
 
 
 class AuriMindV6:
@@ -157,9 +159,9 @@ Reglas:
         self.memory.add_semantic(user_id, f"user: {user_msg}")
         self.memory.add_semantic(user_id, f"assistant: {final_answer}")
 
-        facts = self.extractor.extract_facts(user_msg)
-        for f in facts:
-            self.memory.add_fact(user_id, f)
+        facts_detected = self.extractor.extract_facts(user_msg)
+        for fact in facts_detected:
+            self.memory.add_fact_structured(user_id, fact)
 
         # 9) LIMITAR RESPUESTA SEGÚN PERSONALIDAD
         if length == "corto" and "." in final_answer:
