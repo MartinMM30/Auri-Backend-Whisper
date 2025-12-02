@@ -15,67 +15,68 @@ class IntentEngine:
     # RULE-BASED (rápido)
     # ================================================================
     def _rule_based(self, text: str):
-        if not text:
+            if not text:
+                return None
+
+            t = text.lower().strip()
+
+            # =====================================================
+            # PRIORIDAD MÁXIMA: DELETE (destructivo)
+            # =====================================================
+            if any(w in t for w in [
+                "borra", "borrar", "elimina", "eliminar",
+                "quita", "quitar", "remueve", "remover",
+                "suprime", "suprimir"
+            ]):
+                return "reminder.remove"
+
+            # =====================================================
+            # EDITAR RECORDATORIO
+            # =====================================================
+            if any(w in t for w in [
+                "cambia", "cambiar", "modifica", "modificar",
+                "muévelo", "muevelo", "mover",
+                "adelanta", "atrasa", "ajusta", "edita"
+            ]):
+                return "reminder.edit"
+
+            # =====================================================
+            # CONFIRMAR (solo si detectamos un pending_reminder)
+            # =====================================================
+            if any(phrase in t for phrase in [
+                "sí, está bien", "si, esta bien",
+                "está bien así", "esta bien asi",
+                "confirma", "confirmalo", "confirmar",
+                "dale, hazlo", "sí, hazlo", "si, hazlo",
+                "ok, crea", "ok crea"
+            ]):
+                return "reminder.confirm"
+
+            # =====================================================
+            # CREAR RECORDATORIO
+            # =====================================================
+            if any(w in t for w in [
+                "recuérdame", "recuerdame",
+                "anota", "agenda", "agéndame", "agendame",
+                "crea", "crear",
+                "programa"
+            ]):
+                return "reminder.create"
+
+            # =====================================================
+            # CONSULTAR RECORDATORIOS
+            # (último porque es el más conflictivo)
+            # =====================================================
+            if any(w in t for w in [
+                "qué recordatorios tengo",
+                "que recordatorios tengo",
+                "mis recordatorios",
+                "ver recordatorios",
+                "lista de recordatorios"
+            ]):
+                return "reminder.query"
+
             return None
-
-        t = text.lower()
-
-        # --- DELETE REMINDER ---
-        if any(w in t for w in [
-            "borra", "borrar", "elimina", "eliminar",
-            "quita", "quitar", "remueve", "remover",
-            "suprime", "suprimir"
-        ]):
-            return "reminder.remove"
-
-        # --- EDIT REMINDER ---
-        if any(w in t for w in [
-            "cambia", "cambiar", "modifica", "modificar",
-            "muévelo", "muevelo", "mover",
-            "adelanta", "atrasa", "ajusta", "edita"
-        ]):
-            return "reminder.edit"
-
-        # --- QUERY REMINDERS ---
-        if any(w in t for w in [
-            "qué recordatorios tengo",
-            "que recordatorios tengo",
-            "mis recordatorios",
-            "ver recordatorios",
-            "lista de recordatorios"
-        ]):
-            return "reminder.query"
-
-        # --- CONFIRM REMINDER ---
-        if any(phrase in t for phrase in [
-            "sí, está bien",
-            "si, esta bien",
-            "sí está bien",
-            "si esta bien",
-            "ok, crea",
-            "ok crea",
-            "está bien así",
-            "esta bien asi",
-            "confirma",
-            "confirmalo",
-            "confirmar",
-            "dale, hazlo",
-            "sí, hazlo",
-            "si, hazlo"
-        ]):
-            return "reminder.confirm"
-
-        # --- CREATE REMINDER ---
-        if any(w in t for w in [
-            "recordatorio",
-            "recuérdame", "recuerdame",
-            "crea", "crear",
-            "programa", "agenda esto",
-            "anota", "agéndame", "agendame"
-        ]):
-            return "reminder.create"
-
-        return None
 
     # ================================================================
     # LLM FALLBACK
