@@ -146,7 +146,53 @@ class ActionsEngine:
     # ==============================================================
     # DELETE REMINDER
     # ==============================================================
-    def _handle_delete_reminder(self, user_msg: str):
+    def _handle_delete_reminder(self, user_msg: str, context=None):
+        text = user_msg.lower()
+
+        # ===========================================================
+        # 1) DETECCIÓN SEMÁNTICA: "mi recordatorio más reciente"
+        # ===========================================================
+        keywords_recent = [
+                "más reciente",
+                "mas reciente",
+                "más nuevo",
+                "ultimo recordatorio",
+                "último recordatorio",
+                "el último",
+                "el ultimo",
+                "mi más reciente",
+                "mi mas reciente",
+                "mi ultimo",
+                "mi último",
+            ]
+
+        if any(k in text for k in keywords_recent):
+                # Buscar el recordatorio más próximo en el contexto
+                events = []
+                if context and isinstance(context, dict):
+                    events = context.get("events", []) or []
+
+                if events:
+                    # Ordenar por fecha → primero el más próximo
+                    events_sorted = sorted(events, key=lambda e: e.get("when"))
+                    target = events_sorted[0]  # más reciente
+
+                    return {
+                        "final": f"De acuerdo, elimino tu recordatorio más reciente: “{target['title']}”.",
+                        "action": self._make_action(
+                            "delete_reminder",
+                            {"title": target["title"]},
+                        ),
+                    }
+
+                return {
+                    "final": "No encontré recordatorios para borrar.",
+                    "action": None
+                }
+
+        # ===========================================================
+        # 2) MODO NORMAL (extractor + fallbacks)
+        # ===========================================================
         try:
             parsed = self.extractor.extract_reminder(user_msg)
         except Exception:
@@ -154,20 +200,13 @@ class ActionsEngine:
 
         title = parsed.title if parsed and parsed.title else None
 
-        # Fallback 1: texto después del verbo
+        # Fallback: texto después del verbo
         if not title:
             lowered = user_msg.lower()
             triggers = [
-                "quita ",
-                "borra ",
-                "elimina ",
-                "quiero quitar ",
-                "quiero borrar ",
-                "quiero eliminar ",
-                "quita el ",
-                "quita la ",
-                "elimina el ",
-                "elimina la ",
+                "quita ", "borra ", "elimina ",
+                "quiero quitar ", "quiero borrar ", "quiero eliminar ",
+                "quita el ", "quita la ", "elimina el ", "elimina la "
             ]
             for t in triggers:
                 if t in lowered:
@@ -175,22 +214,12 @@ class ActionsEngine:
                     title = user_msg[idx:].strip()
                     break
 
-        # Fallback 2: palabras clave de pagos/genéricos
+        # Fallback keywords
         if not title:
             keywords = [
-                "agua",
-                "luz",
-                "internet",
-                "teléfono",
-                "telefono",
-                "renta",
-                "alquiler",
-                "gato",
-                "perro",
-                "tarea",
-                "examen",
-                "pago",
-                "recordatorio",
+                "agua", "luz", "internet", "teléfono", "telefono",
+                "renta", "alquiler", "gato", "perro", "tarea", "examen",
+                "pago", "recordatorio"
             ]
             l = user_msg.lower()
             for k in keywords:
@@ -198,11 +227,10 @@ class ActionsEngine:
                     title = k
                     break
 
-        # Aún nada → pregunta
         if not title:
             return {
                 "final": "¿Qué recordatorio deseas quitar exactamente?",
-                "action": None,
+                "action": None
             }
 
         clean_title = title.strip()
