@@ -46,55 +46,80 @@ class _SimpleWeather:
 
 @router.post("/context/sync")
 async def context_sync(req: ContextUpdateRequest):
+    data = req.dict()
+
+    # 🔥 LEER UID desde raíz del JSON
+    firebase_uid = data.get("firebase_uid", None)
 
     print("\n================ CONTEXT SYNC RECIBIDO ================")
-    print(req.dict())
+    print(data)
+    print("UID detectado:", firebase_uid)
     print("=======================================================\n")
 
     ctx = auri.context
     ctx.invalidate()
     blocks_ok = True
 
-    # WEATHER
+    # -----------------------------
+    #  WEATHER
+    # -----------------------------
     if req.weather:
         ctx.set_weather(_SimpleWeather(req.weather.temp, req.weather.description))
     else:
         blocks_ok = False
 
-    # EVENTS
+    # -----------------------------
+    #  EVENTS
+    # -----------------------------
     if req.events is not None:
         ctx.set_events(req.events)
     else:
         blocks_ok = False
 
-    # CLASSES
+    # -----------------------------
+    #  CLASSES
+    # -----------------------------
     if req.classes is not None:
         ctx.set_classes(req.classes)
     else:
         blocks_ok = False
 
-    # EXAMS
+    # -----------------------------
+    #  EXAMS
+    # -----------------------------
     if req.exams is not None:
         ctx.set_exams(req.exams)
     else:
         blocks_ok = False
 
-    # BIRTHDAYS
+    # -----------------------------
+    #  BIRTHDAYS
+    # -----------------------------
     if req.birthdays is not None:
         ctx.set_birthdays(req.birthdays)
     else:
         blocks_ok = False
 
-    # PAYMENTS
+    # -----------------------------
+    #  PAYMENTS
+    # -----------------------------
     if req.payments is not None:
         ctx.set_payments(req.payments)
     else:
         blocks_ok = False
 
-    # USER
-    if req.user and "name" in req.user:
+    # -----------------------------
+    #  USER + UID
+    # -----------------------------
+    if req.user:
+
+        # 🔥 insertar UID dentro del user-block
+        if firebase_uid:
+            req.user["firebase_uid"] = firebase_uid
+
         ctx.set_user(req.user)
-        firebase_uid = req.user.get("firebase_uid") if req.user else None
+
+        # 🔥 guardar perfil en Mongo SOLO si hay login real
         if firebase_uid:
             users.update_one(
                 {"_id": firebase_uid},
@@ -104,6 +129,7 @@ async def context_sync(req: ContextUpdateRequest):
                         "city": req.user.get("city"),
                         "occupation": req.user.get("occupation"),
                         "birthday": req.user.get("birthday"),
+                        "context": data,
                         "updated_at": datetime.utcnow()
                     }
                 },
@@ -112,7 +138,9 @@ async def context_sync(req: ContextUpdateRequest):
     else:
         blocks_ok = False
 
-    # PREFS
+    # -----------------------------
+    #  PREFS
+    # -----------------------------
     if req.prefs is not None:
         ctx.set_prefs(req.prefs)
         if "personality" in req.prefs:
@@ -120,15 +148,12 @@ async def context_sync(req: ContextUpdateRequest):
     else:
         blocks_ok = False
 
-    # ------------------------------
-    # 🔹 NUEVO: TIMEZONE + HORA LOCAL
-    # ------------------------------
-
-    # TIMEZONE
+    # -----------------------------
+    #  TIMEZONE + TIME INFO
+    # -----------------------------
     if req.timezone:
         ctx.set_timezone(req.timezone)
 
-    # TIME INFO
     if req.current_time_iso or req.current_time_pretty or req.current_date_pretty:
         ctx.set_time_info(
             iso=req.current_time_iso,
@@ -136,7 +161,9 @@ async def context_sync(req: ContextUpdateRequest):
             date=req.current_date_pretty
         )
 
-    # READY CHECK
+    # -----------------------------
+    #  READY
+    # -----------------------------
     if blocks_ok:
         ctx.mark_ready()
         print("✔ CONTEXTO COMPLETO — ready = True")
@@ -144,4 +171,4 @@ async def context_sync(req: ContextUpdateRequest):
     else:
         print("✘ CONTEXTO INCOMPLETO — ready = False")
 
-    return {"ok": True}
+    return {"ok": True, "uid_used": firebase_uid}
