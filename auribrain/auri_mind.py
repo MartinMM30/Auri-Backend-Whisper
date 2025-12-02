@@ -195,32 +195,35 @@ Reglas:
                 final_answer = final_answer.split(".")[0].strip() + "."
 
         # 11) RESULTADO FINAL
-        return {
+                return {
             "intent": intent,
             "raw": raw_answer,
             "final": final_answer,
             "action": action,
             "voice_id": voice_id,
         }
-            # -------------------------------------------------------------
+
+    # -------------------------------------------------------------
     # 🔐 Asignar el UID del usuario activo desde WebSocket
     # -------------------------------------------------------------
     def set_user_uid(self, uid: str):
         """
-        Informa al motor de memoria que el usuario activo cambió.
-        Esto fuerza a cargar su perfil, hechos, y diálogo reciente.
+        Permite al motor de memoria cargar el perfil correcto
+        cuando llega un UID desde WebSocket.
         """
         if not uid:
             return
 
         try:
-            # Actualiza el usuario activo en el contexto
+            # Guardar UID en el contexto global
             self.context.set_user_uid(uid)
 
-            # Precarga memoria para reducir latencia en think()
-            _ = self.memory.get_user_profile(uid)
-            _ = self.memory.get_facts(uid)
-            _ = self.memory.get_recent_dialog(uid)
+            # Precargar memoria → reduce la latencia de think()
+            self.memory.get_user_profile(uid)
+            self.memory.get_facts(uid)
+            self.memory.get_recent_dialog(uid)
+
+            print(f"UID detectado por AuriMind: {uid}")
 
         except Exception as e:
             print(f"⚠ No se pudo establecer usuario activo en AuriMind: {e}")
