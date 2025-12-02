@@ -1,51 +1,68 @@
 # auribrain/fact_extractor.py
 
-import os
 import json
-from datetime import datetime
 from openai import OpenAI
 
-client = OpenAI()
 
-FACT_SYSTEM = """
-Eres un extractor de HECHOS personales del usuario.
-Tu tarea es leer el mensaje y devolver SOLO hechos importantes.
+def extract_facts(text: str):
+    """
+    FactExtractor V4 – estable y compatible con response_format=json_object
+    """
 
-Formato:
-{
+    client = OpenAI()
+
+    system_msg = (
+        "Eres un extractor de HECHOS del usuario. "
+        "Debes devolver un objeto JSON válido. "
+        "La palabra 'json' ya fue mencionada. "
+        "Tu salida DEBE ser estrictamente un json_object."
+    )
+
+    user_prompt = f"""
+Extrae *hechos personales del usuario* a partir del siguiente texto.
+
+Regresa SIEMPRE un JSON con la forma:
+
+{{
   "facts": [
-    {
-      "text": "frase corta",
-      "category": "relationship | preferences | work | health | finance | life | goal | other",
-      "importance": 1-5,
-      "confidence": 0.0-1.0
-    }
+    {{
+      "text": "hecho detectado",
+      "category": "relationship | preference | personal | pet | work | other",
+      "importance": 1,
+      "confidence": 1.0
+    }}
   ]
-}
+}}
 
 Reglas:
+- Si NO hay hechos, devuelve "facts": [].
 - No inventes nada.
-- Si no hay hechos importantes: devuelve { "facts": [] }.
-- Usa enunciados cortos, neutrales y útiles.
-- No repitas hechos obvios ni vagos.
+- Un hecho es información sobre el usuario, familia, gustos, mascotas, preferencias, etc.
+- Usa importance de 1 a 5 según relevancia.
+- Usa confidence entre 0.0 y 1.0.
+
+TEXTO DEL USUARIO:
+\"\"\"{text}\"\"\"
 """
 
-def extract_facts(message: str):
     try:
-        res = client.chat.completions.create(
+        resp = client.responses.create(
             model="gpt-4o-mini",
-            temperature=0.2,
             response_format={"type": "json_object"},
-            messages=[
-                {"role": "system", "content": FACT_SYSTEM},
-                {"role": "user", "content": message},
-            ],
+            input=[
+                {"role": "system", "content": system_msg},
+                {"role": "user", "content": user_prompt}
+            ]
         )
 
-        raw = res.choices[0].message.content or "{}"
+        raw = resp.output_text
         data = json.loads(raw)
-        return data.get("facts", [])
+
+        if "facts" not in data:
+            return []
+
+        return data["facts"]
 
     except Exception as e:
-        print(f"[FactExtractor] ERROR: {e}")
+        print("[FactExtractor ERROR]", e)
         return []
