@@ -1,7 +1,7 @@
 import datetime
 from auribrain.memory_db import users, facts, dialog_recent
 from auribrain.embedding_service import EmbeddingService
-from auribrain.memory_router import router
+from auri_backend_whisper.api.memory_router import router
 from auribrain.memory_db import memory_vectors
 
 

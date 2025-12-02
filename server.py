@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from api_router import router as api_router
 from realtime.realtime_ws import router as realtime_router
 from dotenv import load_dotenv
-from auribrain.memory_router import router as memory_router
+from api.memory_router import router as memory_router
 
 
 load_dotenv()
