@@ -20,12 +20,29 @@ class ActionsEngine:
         self.extractor = EntityExtractor()
 
     # ==============================================================
+    # UTILIDAD: OBTENER HORA REAL DEL USUARIO
+    # ==============================================================
+    def _get_now(self, context: dict):
+        """
+        Usa la hora del dispositivo que Flutter envía en current_time_iso.
+        Si no existe, usa datetime.now() local del servidor.
+        """
+        if context and "current_time_iso" in context:
+            iso = context["current_time_iso"]
+            try:
+                return datetime.fromisoformat(iso)
+            except:
+                pass
+
+        return datetime.now()
+
+    # ==============================================================
     # ENTRY POINT
     # ==============================================================
     def handle(self, intent: str, user_msg: str, context: Dict[str, Any], memory):
 
         if intent == "reminder.create":
-            return self._handle_create_reminder(user_msg)
+            return self._handle_create_reminder(user_msg, context)
 
         if intent == "reminder.remove":
             return self._handle_delete_reminder(user_msg, context)
@@ -72,8 +89,9 @@ class ActionsEngine:
     # ==============================================================
     # CREATE REMINDER
     # ==============================================================
-    def _handle_create_reminder(self, user_msg: str):
-        now = datetime.utcnow()
+    def _handle_create_reminder(self, user_msg: str, context: dict):
+
+        now = self._get_now(context)
 
         try:
             parsed = self.extractor.extract_reminder(user_msg, now=now)
@@ -88,13 +106,19 @@ class ActionsEngine:
 
         if not parsed.datetime:
             return {
-                "final": f"Entendí que deseas recordar “{parsed.title}”. ¿Para qué día y hora lo programo?",
+                "final": (
+                    f"Entendí que deseas recordar “{parsed.title}”. "
+                    "¿Para qué día y hora lo programo?"
+                ),
                 "action": None,
             }
 
         dt = parsed.datetime
         return {
-            "final": f"Perfecto, te recuerdo “{parsed.title}” el {dt.strftime('%d/%m a las %H:%M')}.",
+            "final": (
+                f"Perfecto, te recuerdo “{parsed.title}” "
+                f"el {dt.strftime('%d/%m a las %H:%M')}."
+            ),
             "action": self._make_action(
                 "create_reminder",
                 {
@@ -107,7 +131,7 @@ class ActionsEngine:
         }
 
     # ==============================================================
-    # DELETE REMINDER  (TU SISTEMA COMPLETO)
+    # DELETE REMINDER (BORRADO INTELIGENTE COMPLETO)
     # ==============================================================
     def _handle_delete_reminder(self, user_msg: str, context: dict = None):
 
@@ -116,164 +140,94 @@ class ActionsEngine:
         if context and isinstance(context, dict):
             events = context.get("events", []) or []
 
-        # ===========================================================
-        # UTIL: ordenar por fecha
-        # ===========================================================
+        # ordenar por fecha si es posible
         def sort_events(ev_list):
             try:
                 return sorted(ev_list, key=lambda e: e["when"])
             except:
                 return ev_list
 
-        # ===========================================================
-        # 1) BORRAR TODOS
-        # ===========================================================
+        # ---- BORRAR TODOS ----
         if any(k in text for k in ["borra todos", "elimina todos", "quitar todos"]):
             return {
                 "final": "Elimino todos tus recordatorios.",
-                "action": {
-                    "type": "delete_all_reminders",
-                    "payload": {}
-                },
+                "action": {"type": "delete_all_reminders", "payload": {}},
             }
 
-        # ===========================================================
-        # 2) BORRAR POR CATEGORÍA
-        # ===========================================================
+        # ---- BORRAR CATEGORÍA ----
         if "pago" in text or "pagos" in text:
             return {
                 "final": "De acuerdo, elimino tus recordatorios de pagos.",
-                "action": {
-                    "type": "delete_category",
-                    "payload": {"category": "payment"},
-                },
+                "action": {"type": "delete_category", "payload": {"category": "payment"}},
             }
 
         if "cumple" in text or "cumpleaños" in text:
             return {
                 "final": "Elimino tus recordatorios de cumpleaños.",
-                "action": {
-                    "type": "delete_category",
-                    "payload": {"category": "birthday"},
-                },
+                "action": {"type": "delete_category", "payload": {"category": "birthday"}},
             }
 
-        # ===========================================================
-        # 3) BORRAR RECORDATORIOS DE HOY / MAÑANA
-        # ===========================================================
-        if "de hoy" in text or "hoy" in text:
+        # ---- HOY / MAÑANA ----
+        if "hoy" in text:
             return {
                 "final": "Elimino tus recordatorios de hoy.",
-                "action": {
-                    "type": "delete_by_date",
-                    "payload": {"when": "today"},
-                },
+                "action": {"type": "delete_by_date", "payload": {"when": "today"}},
             }
 
-        if "de mañana" in text or "mañana" in text:
+        if "mañana" in text:
             return {
                 "final": "Elimino tus recordatorios de mañana.",
-                "action": {
-                    "type": "delete_by_date",
-                    "payload": {"when": "tomorrow"},
-                },
+                "action": {"type": "delete_by_date", "payload": {"when": "tomorrow"}},
             }
 
-        # ===========================================================
-        # 4) BORRAR PRÓXIMO RECORDATORIO
-        # ===========================================================
-        keywords_next = [
-            "próximo", "proximo", "el que sigue", "el que viene", "siguiente"
-        ]
+        # ---- PRÓXIMO ----
+        keywords_next = ["próximo", "proximo", "el que sigue", "el que viene", "siguiente"]
         if any(k in text for k in keywords_next):
             if events:
-                sorted_events = sort_events(events)
-                target = sorted_events[0]
+                target = sort_events(events)[0]
                 return {
                     "final": f"Elimino tu próximo recordatorio: “{target['title']}”.",
-                    "action": {
-                        "type": "delete_reminder",
-                        "payload": {"title": target["title"]}
-                    },
+                    "action": {"type": "delete_reminder", "payload": {"title": target["title"]}},
                 }
             return {"final": "No encontré recordatorios próximos para borrar.", "action": None}
 
-        # ===========================================================
-        # 5) BORRAR MÁS RECIENTE (el mismo que 'próximo', pero semántico)
-        # ===========================================================
-        keywords_recent = [
-            "más reciente", "mas reciente", "más nuevo", "ultimo", "último",
-            "el más reciente", "el mas reciente"
-        ]
+        # ---- MÁS RECIENTE ----
+        keywords_recent = ["más reciente", "mas reciente", "más nuevo", "ultimo", "último"]
         if any(k in text for k in keywords_recent):
             if events:
-                sorted_events = sort_events(events)
-                target = sorted_events[0]
+                target = sort_events(events)[0]
                 return {
                     "final": f"Elimino tu recordatorio más reciente: “{target['title']}”.",
-                    "action": {
-                        "type": "delete_reminder",
-                        "payload": {"title": target["title"]},
-                    },
+                    "action": {"type": "delete_reminder", "payload": {"title": target["title"]}},
                 }
             return {"final": "No encontré recordatorios recientes para borrar.", "action": None}
 
-        # ===========================================================
-        # 6) BORRAR POR TÍTULO NORMAL (extractor + fallback)
-        # ===========================================================
+        # ---- TITULO NORMAL ----
         try:
             parsed = self.extractor.extract_reminder(user_msg)
-        except Exception:
+        except:
             parsed = None
 
         title = parsed.title if parsed and parsed.title else None
 
-        # Fallback por texto después del verbo
+        # fallback básico
         if not title:
             lowered = user_msg.lower()
-            triggers = [
-                "quita ", "borra ", "elimina ",
-                "quiero quitar ", "quiero borrar ", "quiero eliminar ",
-                "quita el ", "quita la ", "elimina el ", "elimina la "
-            ]
-            for t in triggers:
+            for t in ["quita ", "borra ", "elimina ", "quita el ", "elimina la "]:
                 if t in lowered:
-                    idx = lowered.index(t) + len(t)
-                    title = user_msg[idx:].strip()
-                    break
-
-        # Fallback semántico ligero (pago, agua, luz…)
-        if not title:
-            keywords = [
-                "agua", "luz", "internet", "teléfono", "telefono",
-                "renta", "alquiler", "gato", "perro", "tarea",
-                "examen", "pago", "recordatorio"
-            ]
-            l = user_msg.lower()
-            for k in keywords:
-                if k in l:
-                    title = k
+                    title = user_msg[lowered.index(t) + len(t):].strip()
                     break
 
         if not title:
-            return {
-                "final": "¿Qué recordatorio deseas quitar exactamente?",
-                "action": None,
-            }
-
-        clean = title.strip()
+            return {"final": "¿Qué recordatorio deseas quitar exactamente?", "action": None}
 
         return {
-            "final": f"De acuerdo, intento eliminar “{clean}”.",
-            "action": {
-                "type": "delete_reminder",
-                "payload": {"title": clean},
-            },
+            "final": f"De acuerdo, intento eliminar “{title}”.",
+            "action": {"type": "delete_reminder", "payload": {"title": title}},
         }
 
-
     # ==============================================================
-    # EDIT REMINDER — INTELIGENTE Y COMPLETO
+    # EDIT REMINDER (INTELIGENTE)
     # ==============================================================
     def _handle_edit_reminder(self, user_msg: str, context: Dict[str, Any]):
 
@@ -283,9 +237,7 @@ class ActionsEngine:
         if not events:
             return {"final": "No tienes recordatorios para editar.", "action": None}
 
-        # ===========================================================
-        # 1) Encontrar cuál recordatorio quiere editar
-        # ===========================================================
+        # buscar recordatorio mencionado
         target_event = None
         for ev in events:
             title = ev.get("title", "").lower()
@@ -300,34 +252,27 @@ class ActionsEngine:
             }
 
         old_title = target_event["title"]
+        now = self._get_now(context)
 
-        # ===========================================================
-        # 2) Extraer nueva info con EntityExtractor
-        # ===========================================================
-        now = datetime.utcnow()
-        parsed = None
         try:
             parsed = self.extractor.extract_reminder(user_msg, now=now)
         except:
             parsed = None
 
-        # Si extractor no devolvió nada útil → confirmar
         if not parsed:
             return {
                 "final": (
-                    f"¿Qué cambio deseas hacer en el recordatorio “{old_title}”? "
-                    f"Puedes decir: “cámbialo para mañana a las 6” o “ponlo diario”."
+                    f"¿Qué cambio deseas hacer en “{old_title}”? "
+                    "Puedes decir: “cámbialo para mañana a las 6”."
                 ),
                 "action": None,
             }
 
         new_title = parsed.title or old_title
         new_dt = parsed.datetime
-        new_repeats = parsed.repeats
+        new_rep = parsed.repeats
 
-        # ===========================================================
-        # SIN FECHA → solo cambio de título
-        # ===========================================================
+        # solo cambio de título
         if not new_dt:
             return {
                 "final": f"Perfecto, actualizo el nombre a “{new_title}”.",
@@ -342,9 +287,7 @@ class ActionsEngine:
                 ),
             }
 
-        # ===========================================================
-        # CON FECHA → edición completa
-        # ===========================================================
+        # cambio completo
         return {
             "final": (
                 f"Listo, cambio “{old_title}” por “{new_title}” para "
@@ -356,7 +299,7 @@ class ActionsEngine:
                     "oldTitle": old_title,
                     "newTitle": new_title,
                     "datetime": new_dt.isoformat(),
-                    "repeats": new_repeats,
+                    "repeats": new_rep,
                 },
             ),
         }
