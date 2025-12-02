@@ -14,50 +14,49 @@ class AuriMind:
     """
 
     PERSONALITY_PRESETS = {
-    "auri_classic": {
-        "tone": "cálido y profesional",
-        "emoji": "💜",
-        "length": "medio",
-        "voice_id": "alloy",
-    },
-    "soft": {
-        "tone": "suave, calmado, relajante",
-        "emoji": "🌙",
-        "length": "corto",
-        "voice_id": "nova",
-    },
-    "siri_style": {
-        "tone": "formal, educado, preciso",
-        "emoji": "",
-        "length": "corto",
-        "voice_id": "verse",
-    },
-    "anime_soft": {
-        "tone": "tierna, expresiva y dulce",
-        "emoji": "✨",
-        "length": "medio",
-        "voice_id": "hikari",
-    },
-    "professional": {
-        "tone": "serio, empresarial",
-        "emoji": "",
-        "length": "medio",
-        "voice_id": "amber",
-    },
-    "friendly": {
-        "tone": "amigable, jovial",
-        "emoji": "😊",
-        "length": "medio",
-        "voice_id": "alloy",
-    },
-    "custom_love_voice": {
-        "tone": "dulce, afectiva, suave",
-        "emoji": "💖",
-        "length": "medio",
-        "voice_id": "myGF_voice",  # tu modelo personalizado
+        "auri_classic": {
+            "tone": "cálido y profesional",
+            "emoji": "💜",
+            "length": "medio",
+            "voice_id": "alloy",
+        },
+        "soft": {
+            "tone": "suave, calmado, relajante",
+            "emoji": "🌙",
+            "length": "corto",
+            "voice_id": "nova",
+        },
+        "siri_style": {
+            "tone": "formal, educado, preciso",
+            "emoji": "",
+            "length": "corto",
+            "voice_id": "verse",
+        },
+        "anime_soft": {
+            "tone": "tierna, expresiva y dulce",
+            "emoji": "✨",
+            "length": "medio",
+            "voice_id": "hikari",
+        },
+        "professional": {
+            "tone": "serio, empresarial",
+            "emoji": "",
+            "length": "medio",
+            "voice_id": "amber",
+        },
+        "friendly": {
+            "tone": "amigable, jovial",
+            "emoji": "😊",
+            "length": "medio",
+            "voice_id": "alloy",
+        },
+        "custom_love_voice": {
+            "tone": "dulce, afectiva, suave",
+            "emoji": "💖",
+            "length": "medio",
+            "voice_id": "myGF_voice",
+        }
     }
-}
-
 
     def __init__(self):
         self.client = OpenAI()
@@ -83,42 +82,49 @@ class AuriMind:
                 "intent": "unknown",
                 "raw": "",
                 "final": "No logré escucharte bien, ¿puedes repetirlo?",
-                "action": None
+                "action": None,
+                "voice_id": "alloy"
             }
 
-        # 0) Contexto estricto
+        # Esperar contexto
         if not self.context.is_ready():
             return {
-                "final": "Dame un momento… estoy terminando de cargar tu perfil y agenda.",
                 "intent": "wait",
                 "raw": "",
-                "action": None
+                "final": "Dame un momento… estoy terminando de cargar tu perfil y agenda.",
+                "action": None,
+                "voice_id": "alloy"
             }
 
-        # 1) memoria a corto plazo
+        # Memoria a corto plazo
         self.memory.add_interaction(user_msg)
 
-        # 2) intención
+        # Detectar intención
         intent = self.intent.detect(user_msg)
 
-        # 3) contexto completo
+        # Obtener contexto actual
         ctx = self.context.get_daily_context()
 
-        # 4) perfil del usuario
-        user_name = ctx["user"].get("name") or "usuario"
-        user_city = ctx["user"].get("city") or "tu ciudad"
-        user_job = ctx["user"].get("occupation") or ""
-        birthday = ctx["user"].get("birthday") or ""
+        # Perfil del usuario
+        user = ctx.get("user", {})
+        user_name = user.get("name", "usuario")
+        user_city = user.get("city", "tu ciudad")
+        user_job = user.get("occupation", "")
+        birthday = user.get("birthday", "")
 
-        # 5) personalidad seleccionada
+        # Personalidad configurada
         selected = ctx["prefs"].get("personality", "auri_classic")
-        style = self.PERSONALITY_PRESETS.get(selected, self.PERSONALITY_PRESETS["auri_classic"])
+        style = self.PERSONALITY_PRESETS.get(
+            selected,
+            self.PERSONALITY_PRESETS["auri_classic"]
+        )
 
         tone = style["tone"]
         emoji = style["emoji"]
         length = style["length"]
+        voice_id = style["voice_id"]
 
-        # 6) system prompt V4
+        # SYSTEM PROMPT
         system_prompt = f"""
 Eres Auri, asistente personal de {user_name}.
 Tu estilo actual es: {tone} {emoji}.
@@ -129,36 +135,22 @@ IDENTIDAD DEL USUARIO:
 - Ocupación: {user_job}
 - Cumpleaños: {birthday}
 
-INFORMACIÓN DE TIEMPO REAL:
-- Zona horaria del usuario: {ctx.get('timezone', 'desconocida')}
-- Hora local actual: {ctx.get('current_time_pretty', 'desconocida')}
-- Fecha local: {ctx.get('current_date_pretty', 'desconocida')}
-- ISO: {ctx.get('current_time_iso', '')}
+INFORMACIÓN EN TIEMPO REAL:
+- Zona horaria: {ctx.get('timezone')}
+- Hora local: {ctx.get('current_time_pretty')}
+- Fecha: {ctx.get('current_date_pretty')}
+- ISO: {ctx.get('current_time_iso')}
 
-CLIMA ACTUAL:
-{ctx["weather"]}
-
-AGENDA:
-{ctx["events"]}
-
-PREFERENCIAS:
-{ctx["prefs"]}
-
-REGLAS IMPORTANTES:
-1. Si el usuario pregunta la hora (ej: “qué hora es”, “dime la hora”, “hora actual”),
-   RESPONDE SIEMPRE usando la hora local:
-   → {ctx.get('current_time_pretty', 'hora_desconocida')}
-   Nunca digas “no tengo acceso a la hora”.
-2. Si pregunta la fecha, usa:
-   → {ctx.get('current_date_pretty', 'fecha_desconocida')}
-3. Si el usuario pregunta “¿quién soy?”, responde literalmente: "{user_name}".
-4. Usa clima, ciudad, cumpleaños, clases, pagos y eventos si aplican.
-5. Si la personalidad indica “corto”, responde en 1 sola frase.
-6. Si la personalidad indica “medio”, responde en 1–2 frases naturales.
-7. Mantén un estilo humano, cálido y claro.
+REGLAS:
+- Si pregunta la hora → usa la hora local.
+- Si pregunta la fecha → usa la fecha local.
+- Si pregunta quién es → responde exactamente: "{user_name}".
+- Usa un estilo humano, cálido, natural.
 """
 
-        # 7) llamada al modelo
+        # ---------------------------
+        # RESPUESTA BASE CON LLM
+        # ---------------------------
         resp = self.client.responses.create(
             model="gpt-4o-mini",
             input=[
@@ -169,17 +161,20 @@ REGLAS IMPORTANTES:
 
         raw_answer = resp.output_text.strip()
 
-        # 8) acciones (recordatorios, pagos, cumpleaños, ciudad…)
-        action_result = self.actions.handle(
+        # ---------------------------
+        # PROCESAR ACCIONES
+        # ---------------------------
+        action_res = self.actions.handle(
             intent=intent,
             user_msg=user_msg,
             context=ctx,
             memory=self.memory
         )
 
-        final_answer = action_result.get("final") or raw_answer
+        final_answer = action_res.get("final") or raw_answer
+        action = action_res.get("action")
 
-        # 9) límite de longitud por personalidad
+        # Limitar longitud si personalidad lo pide
         if length == "corto":
             final_answer = final_answer.split(".")[0].strip() + "."
 
@@ -187,5 +182,6 @@ REGLAS IMPORTANTES:
             "intent": intent,
             "raw": raw_answer,
             "final": final_answer,
-            "action": action_result.get("action")
+            "action": action,
+            "voice_id": voice_id
         }

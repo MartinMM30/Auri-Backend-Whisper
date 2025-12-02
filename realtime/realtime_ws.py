@@ -26,6 +26,9 @@ SAFE_ACTION_TYPES = {
     "delete_reminder",
     "edit_reminder",
     "open_reminders_list",
+    "delete_all_reminders",
+    "delete_category",
+    "delete_by_date",
 }
 
 
@@ -177,7 +180,9 @@ async def process_stt_tts(ws: WebSocket, session: RealtimeSession):
         logger.info("🧠 Auri reply: %s", reply_text)
 
         # TTS
-        await send_tts(ws, reply_text)
+        voice_id = think_res.get("voice_id", "alloy")
+        await send_tts(ws, reply_text, voice_id=voice_id)
+
 
         # ACTION (segura)
         if action:
@@ -199,7 +204,9 @@ async def process_text_only(ws: WebSocket, text: str):
         reply_text = think_res.get("final") or think_res.get("raw") or ""
         action = think_res.get("action")
 
-        await send_tts(ws, reply_text)
+        voice_id = think_res.get("voice_id", "alloy")
+        await send_tts(ws, reply_text, voice_id=voice_id)
+
 
         if action:
             await _safe_send_action(ws, action)
