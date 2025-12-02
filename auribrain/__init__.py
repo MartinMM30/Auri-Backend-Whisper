@@ -1,4 +1,4 @@
-from .auri_mind import AuriMind
+from .auri_mind import AuriMindV6
 from .intent_engine import IntentEngine
 from .memory_engine import MemoryEngine
 from .context_engine import ContextEngine
