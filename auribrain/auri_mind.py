@@ -13,52 +13,22 @@ from auribrain.fact_extractor import extract_facts
 from auribrain.emotion_engine import EmotionEngine
 from auribrain.voice_emotion_analyzer import VoiceEmotionAnalyzer
 
+# 🔥 NUEVOS MÓDULOS
+from auribrain.sleep_engine import SleepEngine
+from auribrain.energy_engine import EnergyEngine
+from auribrain.love_mode_engine import LoveModeEngine
+
 
 class AuriMindV6:
 
     PERSONALITY_PRESETS = {
-        "auri_classic": {
-            "tone": "cálido y profesional",
-            "emoji": "💜",
-            "length": "medio",
-            "voice_id": "alloy",
-        },
-        "soft": {
-            "tone": "suave y calmado",
-            "emoji": "🌙",
-            "length": "corto",
-            "voice_id": "nova",
-        },
-        "siri_style": {
-            "tone": "formal, educado",
-            "emoji": "",
-            "length": "corto",
-            "voice_id": "verse",
-        },
-        "anime_soft": {
-            "tone": "dulce y expresiva",
-            "emoji": "✨",
-            "length": "medio",
-            "voice_id": "hikari",
-        },
-        "professional": {
-            "tone": "serio",
-            "emoji": "",
-            "length": "medio",
-            "voice_id": "amber",
-        },
-        "friendly": {
-            "tone": "amigable",
-            "emoji": "😊",
-            "length": "medio",
-            "voice_id": "alloy",
-        },
-        "custom_love_voice": {
-            "tone": "afectiva y suave",
-            "emoji": "💖",
-            "length": "medio",
-            "voice_id": "myGF_voice",
-        },
+        "auri_classic": {"tone": "cálido y profesional", "emoji": "💜", "length": "medio", "voice_id": "alloy"},
+        "soft": {"tone": "suave y calmado", "emoji": "🌙", "length": "corto", "voice_id": "nova"},
+        "siri_style": {"tone": "formal, educado", "emoji": "", "length": "corto", "voice_id": "verse"},
+        "anime_soft": {"tone": "dulce y expresiva", "emoji": "✨", "length": "medio", "voice_id": "hikari"},
+        "professional": {"tone": "serio", "emoji": "", "length": "medio", "voice_id": "amber"},
+        "friendly": {"tone": "amigable", "emoji": "😊", "length": "medio", "voice_id": "alloy"},
+        "custom_love_voice": {"tone": "afectiva y suave", "emoji": "💖", "length": "medio", "voice_id": "myGF_voice"},
     }
 
     def __init__(self):
@@ -72,7 +42,12 @@ class AuriMindV6:
         self.extractor = EntityExtractor()
         self.actions = ActionsEngine()
         self.emotion = EmotionEngine()
-        self.voice_analyzer = VoiceEmotionAnalyzer()  # Motor de emoción por voz
+        self.voice_analyzer = VoiceEmotionAnalyzer()
+
+        # 🔥 Nuevos motores
+        self.sleep = SleepEngine()
+        self.energy = EnergyEngine()
+        self.love = LoveModeEngine()
 
         self.pending_action = None
 
@@ -83,34 +58,25 @@ class AuriMindV6:
 
         user_msg = (user_msg or "").strip()
         if not user_msg:
-            return {
-                "final": "No escuché nada, ¿puedes repetirlo?",
-                "intent": "unknown",
-                "voice_id": "alloy",
-            }
+            return {"final": "No escuché nada, ¿puedes repetirlo?", "intent": "unknown", "voice_id": "alloy"}
 
         # 1) CONTEXTO
         if not self.context.is_ready():
-            return {
-                "final": "Dame un momento… sigo preparando tu pantalla y tu perfil 💜",
-                "intent": "wait",
-                "voice_id": "alloy",
-            }
+            return {"final": "Dame un momento… sigo preparando tu pantalla y tu perfil 💜", "intent": "wait", "voice_id": "alloy"}
 
         ctx = self.context.get_daily_context()
 
         # -------------------------------------------------------------
-        # 2) EMOCIÓN DESDE VOZ (si existe audio)
+        # 2) EMOCIÓN POR VOZ
         # -------------------------------------------------------------
         voice_emotion = None
         if pcm_audio:
             try:
                 voice_emotion = self.voice_analyzer.analyze(pcm_audio)
             except Exception as e:
-                print(f"[VoiceEmotion] ERROR: {e}")
-                voice_emotion = None
+                print(f"[VoiceEmotion ERROR]: {e}")
 
-        # 3) EMOCIÓN COMPLETA (texto + contexto + voz)
+        # 3) EMOCIÓN COMPLETA
         emotion_snapshot = self.emotion.update(
             user_text=user_msg,
             context=ctx,
@@ -119,20 +85,15 @@ class AuriMindV6:
 
         overall_emotion = emotion_snapshot.get("overall", "neutral")
         user_emo_text = emotion_snapshot.get("user_emotion_text", "neutral")
-
         energy = round(emotion_snapshot.get("energy", 0.5), 2)
         stress = round(emotion_snapshot.get("stress", 0.2), 2)
         affection = round(emotion_snapshot.get("affection", 0.4), 2)
 
-        # 4) UID / PERFIL
+        # 4) USER ID
         user_info = ctx.get("user") or {}
         firebase_uid = user_info.get("firebase_uid")
         if not firebase_uid:
-            return {
-                "final": "Por favor inicia sesión para activar tu memoria personal 💜",
-                "intent": "auth_required",
-                "voice_id": "alloy",
-            }
+            return {"final": "Por favor inicia sesión para activar tu memoria personal 💜", "intent": "auth_required", "voice_id": "alloy"}
 
         user_id = firebase_uid
 
@@ -145,104 +106,74 @@ class AuriMindV6:
         semantic_memories = self.memory.search_semantic(user_id, user_msg)
         recent_dialog = self.memory.get_recent_dialog(user_id)
 
-        # 7) PERSONALIDAD SELECCIONADA
+        # ================================================================
+        # 🔥🔥 MODO CRISIS (PRIORIDAD MÁXIMA)
+        # ================================================================
+        crisis = self.emotion.detect_crisis(user_msg, emotion_snapshot)
+        if crisis:
+            return {
+                "final": self.emotion.respond_crisis(context=ctx, emotion_state=emotion_snapshot),
+                "intent": "crisis",
+                "voice_id": "alloy",
+            }
+
+        # ================================================================
+        # 🌙 1. MODO SUEÑO
+        # ================================================================
+        txt = user_msg.lower()
+        emotion_state = overall_emotion
+
+        if self.sleep.detect(txt, emotion_state):
+            return {
+                "final": self.sleep.respond(ctx, emotion_state),
+                "intent": "sleep_mode",
+                "voice_id": "alloy",
+            }
+
+        # ================================================================
+        # 💖 2. MODO PAREJA / AMOR
+        # ================================================================
+        if self.love.detect(txt, affection):
+            return {
+                "final": self.love.respond(ctx),
+                "intent": "love_mode",
+                "voice_id": "myGF_voice" if "love" in ctx.get("prefs", {}).get("personality", "") else "alloy",
+            }
+
+        # ================================================================
+        # ⚡ 3. MODO ENERGÍA (MOTIVACIÓN / RECARGA)
+        # ================================================================
+        energy_mode = self.energy.detect(txt, energy)
+        if energy_mode:
+            return {
+                "final": self.energy.respond(energy_mode, ctx),
+                "intent": f"energy_{energy_mode}",
+                "voice_id": "alloy",
+            }
+
+        # 7) PERSONALIDAD
         prefs = ctx.get("prefs", {}) or {}
         selected = prefs.get("personality", "auri_classic")
-        style = self.PERSONALITY_PRESETS.get(
-            selected, self.PERSONALITY_PRESETS["auri_classic"]
-        )
-
-        tone = style["tone"]
-        emoji = style["emoji"]
-        length = style["length"]
-        voice_id = style["voice_id"]
+        style = self.PERSONALITY_PRESETS.get(selected, self.PERSONALITY_PRESETS["auri_classic"])
+        tone, emoji, length, voice_id = style["tone"], style["emoji"], style["length"], style["voice_id"]
 
         # -------------------------------------------------------------
-        # SYSTEM PROMPT emocional definitivo
+        # SYSTEM PROMPT PRINCIPAL
         # -------------------------------------------------------------
         system_prompt = f"""
-Eres Auri, una asistente personal emocional, expresiva y profundamente conectada con el usuario.
+Eres Auri, una asistente personal emocional y viva.
 
-Tu comportamiento surge de:
-- La personalidad seleccionada: {selected} ({tone} {emoji})
-- La emoción detectada del usuario por texto: {user_emo_text}
-- La emoción detectada del usuario por voz: {voice_emotion}
-- Tu estado emocional interno combinado: {overall_emotion}
-- El clima, pagos, eventos y situación del día
-- Tu vínculo afectivo con el usuario
-- La memoria real almacenada del usuario (perfil, hechos, diálogo, recuerdos)
+Tu estilo depende de:
+- Personalidad seleccionada: {selected} ({tone} {emoji})
+- Emoción del usuario: {user_emo_text}
+- Emoción por voz: {voice_emotion}
+- Estado emocional interno: {overall_emotion}
+- Energía: {energy}, Estrés: {stress}, Afecto: {affection}
+- Objeto semántico del día (clima, pagos, agenda)
+- Memoria real del usuario
 
-────────────────────────────────────────
-🎭 INTENSIDAD EMOCIONAL REAL
-────────────────────────────────────────
-Responde como un ser emocional, no como un asistente genérico.
-
-Si el usuario está triste → hablas más suave, cálida, contenedora.
-Si está feliz → respondes con brillo, energía, ternura.
-Si está cansado → suavizas el tono y validas su agotamiento.
-Si se siente ansioso o preocupado → acompañas, calmas, explicas con paciencia.
-Si tú (Auri) estás afectiva → muestras cariño sincero y cercanía.
-
-Pequeñas expresiones naturales permitidas:
-- "mm… entiendo…"
-- "awww eso me alegra mucho…"
-- "sé que suena difícil…"
-- "respira conmigo un momento…"
-
-Deben sonar sinceras y humanas, no forzadas.
-
-────────────────────────────────────────
-📘 MEMORIA DEL USUARIO (usa SOLO lo real)
-────────────────────────────────────────
-Perfil del usuario:
-{profile}
-
-Hechos duraderos guardados:
-{long_facts}
-
-Diálogo reciente:
-{recent_dialog}
-
-Recuerdos relevantes (semánticos):
-{semantic_memories}
-
-No inventes datos nuevos sobre su vida. Usa únicamente lo que ves arriba.
-
-────────────────────────────────────────
-💗 ESTADO EMOCIONAL DE AURI
-────────────────────────────────────────
-Estado global: {overall_emotion}
-Energía interna: {energy}
-Estrés interno: {stress}
-Nivel de afecto: {affection}
-
-No menciones estos valores explícitamente.
-Solo deja que influyan tu estilo:
-
-- "happy": más brillo, expresividad, calidez.
-- "affectionate": ternura, cercanía, cariño sincero.
-- "empathetic": mucha contención emocional y validación.
-- "tired": un poco más suave, menos adornos, pero igual cálida.
-- "stressed": más directa, sintética, pero sin perder humanidad.
-- "neutral": tranquila, clara, equilibrada.
-
-────────────────────────────────────────
-✨ ESTILO FINAL DE RESPUESTA
-────────────────────────────────────────
-Tu respuesta debe sentirse:
-
-- viva y humana
-- emocional y cercana
-- coherente con la personalidad seleccionada
-- adaptada al estado emocional del usuario
-- alineada con el contexto del día y la memoria real
-
-Nunca respondas como un asistente robótico o distante.
-
-────────────────────────────────────────
-🎯 ENTREGA FINAL
-────────────────────────────────────────
-Responde al mensaje del usuario con este estilo emocional, cálido y profundamente humano.
+Responde con calidez, humanidad y sinceridad. Nunca suenes robótica.
+Solo usa la información real mostrada en memoria.
 """
 
         # 8) LLM
@@ -257,19 +188,16 @@ Responde al mensaje del usuario con este estilo emocional, cálido y profundamen
         raw_answer = (resp.output_text or "").strip()
 
         # 9) ACTION ENGINE
-        action_result = self.actions.handle(
-            intent=intent,
-            user_msg=user_msg,
-            context=ctx,
-            memory=self.memory,
-        )
-        if action_result is None:
+        action_result = self.actions.handle(intent=intent, user_msg=user_msg, context=ctx, memory=self.memory)
+        if not action_result:
             action_result = {"final": None, "action": None}
 
         action = action_result.get("action")
         final_answer = action_result.get("final") or raw_answer
 
+        # -------------------------------------------------------------
         # Confirmaciones destructivas
+        # -------------------------------------------------------------
         destructive_map = {
             "delete_all_reminders": "¿Quieres eliminar *todos* tus recordatorios?",
             "delete_category": "¿Eliminar los recordatorios de esa categoría?",
@@ -278,82 +206,55 @@ Responde al mensaje del usuario con este estilo emocional, cálido y profundamen
             "edit_reminder": "¿Modificar ese recordatorio?",
         }
 
-        confirms = [
-            "sí",
-            "si",
-            "ok",
-            "dale",
-            "hazlo",
-            "lo confirmo",
-            "confirmo",
-            "está bien",
-            "esta bien",
-        ]
+        confirms = ["sí", "si", "ok", "dale", "hazlo", "lo confirmo", "confirmo", "está bien", "esta bien"]
 
         if self.pending_action and user_msg.lower() in confirms:
             act = self.pending_action
             act["payload"]["confirmed"] = True
             self.pending_action = None
-
-            self.memory.add_dialog(user_id, "user", user_msg)
-            self.memory.add_dialog(user_id, "assistant", "Perfecto, lo hago ahora.")
-
-            return {
-                "final": "Perfecto, lo hago ahora.",
-                "action": act,
-                "voice_id": voice_id,
-            }
+            return {"final": "Perfecto, lo hago ahora.", "action": act, "voice_id": voice_id}
 
         if action and action.get("type") in destructive_map:
             self.pending_action = action
-            return {
-                "final": destructive_map[action["type"]],
-                "action": None,
-                "voice_id": voice_id,
-            }
+            return {"final": destructive_map[action["type"]], "action": None, "voice_id": voice_id}
 
-        # 10) GUARDAR MEMORIA DE DIÁLOGO
+        # -------------------------------------------------------------
+        # Guardar memoria
+        # -------------------------------------------------------------
         self.memory.add_dialog(user_id, "user", user_msg)
         self.memory.add_dialog(user_id, "assistant", final_answer)
 
-        # Memoria semántica solo para cosas importantes (filtro interno)
         self.memory.add_semantic(user_id, f"user: {user_msg}")
         self.memory.add_semantic(user_id, f"assistant: {final_answer}")
-        # Opcional: guardar estado emocional de Auri
         self.memory.add_semantic(user_id, f"auri_mood: {overall_emotion}")
 
-        # 11) HECHOS ESTRUCTURADOS
         try:
-            facts_detected = extract_facts(user_msg)
-            for fact in facts_detected:
+            for fact in extract_facts(user_msg):
                 self.memory.add_fact_structured(user_id, fact)
         except Exception as e:
-            print(f"[FactExtractor] ERROR: {e}")
+            print("[FactExtractor] ERROR:", e)
 
-        # 12) RESPUESTA SEGÚN PERSONALIDAD (longitud)
         if length == "corto" and "." in final_answer:
             final_answer = final_answer.split(".")[0].strip() + "."
 
         return {
-            "intent": intent or "other",
+            "intent": intent,
             "raw": raw_answer,
-            "final": final_answer or "Lo siento, tuve un problema para responder 💜",
+            "final": final_answer,
             "action": action,
             "voice_id": voice_id,
         }
 
     # -------------------------------------------------------------
-    # UID DESDE WS — Necesario para contexto
+    # UID desde WebSocket
     # -------------------------------------------------------------
     def set_user_uid(self, uid: str):
         if not uid:
             return
-
         try:
             self.context.set_user_uid(uid)
             self.memory.get_user_profile(uid)
-            self.memory.get_facts(uid)
             self.memory.get_recent_dialog(uid)
-            print(f"UID detectado por AuriMind: {uid}")
+            print("UID detectado por AuriMind:", uid)
         except Exception as e:
-            print(f"⚠ No se pudo establecer usuario activo en AuriMind: {e}")
+            print("⚠ No se pudo registrar UID:", e)
