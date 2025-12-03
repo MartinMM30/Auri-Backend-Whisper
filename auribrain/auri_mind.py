@@ -1,5 +1,5 @@
 # ============================================================
-# AURI MIND V7.6 — Motor emocional + modos inteligentes + precisión
+# AURI MIND V7.7 — Motor emocional + modos inteligentes + precisión
 # ============================================================
 
 from openai import OpenAI
@@ -28,16 +28,16 @@ from auribrain.mental_health_engine import MentalHealthEngine
 from auribrain.routine_engine import RoutineEngine
 from auribrain.weather_advice_engine import WeatherAdviceEngine
 
-# Nuevos módulos V7.5 / V7.6
+# Nuevos módulos V7.5 / V7.6 / V7.7
 from auribrain.emotion_smartlayer_v3 import EmotionSmartLayerV3
 from auribrain.precision_mode_v2 import PrecisionModeV2
 
 
 # ============================================================
-# AURI MIND 7.6
+# AURI MIND 7.7
 # ============================================================
 
-class AuriMindV7_6:
+class AuriMindV7_7:
 
     PERSONALITY_PRESETS = {
         "auri_classic": {
@@ -113,7 +113,7 @@ class AuriMindV7_6:
         self.routines = RoutineEngine()
         self.weather_advice = WeatherAdviceEngine()
 
-        # NUEVOS MODOS V7.5 / V7.6
+        # Nuevos modos / capas
         self.smartlayer = EmotionSmartLayerV3()
         self.precision = PrecisionModeV2()
 
@@ -355,17 +355,33 @@ class AuriMindV7_6:
             }
 
         # =======================================================
-        # 🔥 8) SALUD MENTAL
+        # 🔥 8) SALUD MENTAL (con bypass inteligente)
         # =======================================================
-        if not skip_modes and not is_info_query and self.mental.detect(txt, stress):
-            msg = self.mental.respond()
-            return {
-                "final": msg,
-                "raw": msg,
-                "intent": "mental",
-                "voice_id": "alloy",
-                "action": None,
-            }
+        is_first_mental = self.mental.detect(txt, stress)
+
+        if not skip_modes and not is_info_query and is_first_mental:
+            HELP_TRIGGERS = [
+                "ayúdame", "ayudame", "ayudarme",
+                "organizame", "organízame",
+                "reorganiza", "reorganizame", "reorganízame",
+                "ordenar mi día", "ordenar mi dia",
+                "mi agenda", "organizar agenda",
+                "qué puedo hacer", "que puedo hacer",
+            ]
+
+            # Si el usuario explícitamente pide ayuda práctica / organización,
+            # evitamos repetir el mensaje de contención y dejamos que Focus/Rutinas respondan.
+            if any(k in txt for k in HELP_TRIGGERS):
+                pass  # no devolvemos salud mental, seguimos pipeline
+            else:
+                msg = self.mental.respond()
+                return {
+                    "final": msg,
+                    "raw": msg,
+                    "intent": "mental",
+                    "voice_id": "alloy",
+                    "action": None,
+                }
 
         # =======================================================
         # 🔥 9) RUTINAS
@@ -440,7 +456,7 @@ class AuriMindV7_6:
             emoji = ""
             length = "corto"
 
-                # =======================================================
+        # =======================================================
         # SYSTEM PROMPT FINAL
         # =======================================================
         system_prompt = f"""
@@ -476,7 +492,8 @@ Eres Auri, asistente personal emocional y compañero diario del usuario.
 {recent}
 
 ***REGLAS GENERALES***
-1. SI "precision_mode" es True:
+
+1. Si "precision_mode" es True:
    - NO uses emojis.
    - NO uses humor.
    - NO uses jerga.
@@ -489,20 +506,20 @@ Eres Auri, asistente personal emocional y compañero diario del usuario.
        - Perfil persistente del usuario (profile)
        - Hechos relevantes (long_facts)
        - Memoria contextual (semantic)
-   - Si encuentras los nombres o datos pedidos, RESPONDELOS directamente,
+   - Si encuentras los nombres o datos pedidos, RESPÓNDELOS directamente,
      de forma clara, sin desviarte a contención emocional.
    - Si NO encuentras esa información en la memoria,
      debes decir algo como:
-       "Todavía no tengo guardados los nombres de tus mascotas/papás.
+       "Todavía no tengo guardados esos nombres.
         Si querés, decime cómo se llaman y los recuerdo para la próxima."
      y hacer UNA sola repregunta amable para completar la memoria.
-   - NO asumas nombres inventados. Si no está explícito, di que no lo sabes.
+   - NO asumas ni inventes nombres. Si no está explícito, di que no lo sabés.
 
 3. Solo uses contención emocional profunda (respiraciones, validación intensa)
    si el usuario explícitamente expresa dolor emocional, crisis o angustia.
-   Para preguntas neutras o de memoria, sé claro y directo.
+   Para preguntas neutras o de memoria, sé clara y directa.
 
-4. Siempre adapta el tono:
+4. Adapta el tono:
    - Si el usuario está neutro y pregunta datos → responde claro, útil y directo.
    - Si está triste/estresado y NO es info_query → puedes ser más cálida y contener.
    - Si está en modo técnico → prioriza precisión sobre emoción.
@@ -510,7 +527,6 @@ Eres Auri, asistente personal emocional y compañero diario del usuario.
 5. Nunca inventes datos personales del usuario.
    Si no estás segura, dilo claramente y pide que te los comparta.
 """
-
 
         resp = self.client.responses.create(
             model="gpt-4o-mini",
@@ -609,7 +625,8 @@ Eres Auri, asistente personal emocional y compañero diario del usuario.
 # ----------------------------------------------------------
 # COMPATIBILIDAD LEGACY
 # ----------------------------------------------------------
-AuriMindV6 = AuriMindV7_6
-AuriMindV7 = AuriMindV7_6
-AuriMindV7_5 = AuriMindV7_6
-AuriMind = AuriMindV7_6
+AuriMindV6 = AuriMindV7_7
+AuriMindV7 = AuriMindV7_7
+AuriMindV7_5 = AuriMindV7_7
+AuriMindV7_6 = AuriMindV7_7
+AuriMind = AuriMindV7_7
