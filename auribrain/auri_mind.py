@@ -441,5 +441,10 @@ Reglas:
             print(f"[AuriMind] Error asignando UID: {e}")
 
 
-# Compatibilidad
+# ----------------------------------------------------------
+# COMPATIBILIDAD LEGACY
+# ----------------------------------------------------------
+AuriMindV6 = AuriMindV7_5
 AuriMindV7 = AuriMindV7_5
+AuriMind = AuriMindV7_5
+
