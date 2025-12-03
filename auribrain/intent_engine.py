@@ -1,10 +1,7 @@
-# auribrain/intent_engine.py
-
 from openai import OpenAI
 import logging
 
 logger = logging.getLogger(__name__)
-
 
 class IntentEngine:
 
@@ -15,68 +12,83 @@ class IntentEngine:
     # RULE-BASED (rápido)
     # ================================================================
     def _rule_based(self, text: str):
-            if not text:
-                return None
-
-            t = text.lower().strip()
-
-            # =====================================================
-            # PRIORIDAD MÁXIMA: DELETE (destructivo)
-            # =====================================================
-            if any(w in t for w in [
-                "borra", "borrar", "elimina", "eliminar",
-                "quita", "quitar", "remueve", "remover",
-                "suprime", "suprimir"
-            ]):
-                return "reminder.remove"
-
-            # =====================================================
-            # EDITAR RECORDATORIO
-            # =====================================================
-            if any(w in t for w in [
-                "cambia", "cambiar", "modifica", "modificar",
-                "muévelo", "muevelo", "mover",
-                "adelanta", "atrasa", "ajusta", "edita"
-            ]):
-                return "reminder.edit"
-
-            # =====================================================
-            # CONFIRMAR (solo si detectamos un pending_reminder)
-            # =====================================================
-            if any(phrase in t for phrase in [
-                "sí, está bien", "si, esta bien",
-                "está bien así", "esta bien asi",
-                "confirma", "confirmalo", "confirmar",
-                "dale, hazlo", "sí, hazlo", "si, hazlo",
-                "ok, crea", "ok crea"
-            ]):
-                return "reminder.confirm"
-
-            # =====================================================
-            # CREAR RECORDATORIO
-            # =====================================================
-            if any(w in t for w in [
-                "recuérdame", "recuerdame",
-                "anota", "agenda", "agéndame", "agendame",
-                "crea", "crear",
-                "programa"
-            ]):
-                return "reminder.create"
-
-            # =====================================================
-            # CONSULTAR RECORDATORIOS
-            # (último porque es el más conflictivo)
-            # =====================================================
-            if any(w in t for w in [
-                "qué recordatorios tengo",
-                "que recordatorios tengo",
-                "mis recordatorios",
-                "ver recordatorios",
-                "lista de recordatorios"
-            ]):
-                return "reminder.query"
-
+        if not text:
             return None
+
+        t = text.lower().strip()
+
+        # =====================================================
+        # 0) CONSULTA DE AGENDA (DEBE IR ANTES DE TODO)
+        # =====================================================
+        agenda_queries = [
+            "revisa mi agenda", "mira mi agenda", "qué tengo hoy",
+            "que tengo hoy", "qué debo hacer", "que debo hacer",
+            "qué hay en mi agenda", "que hay en mi agenda",
+            "agenda", "tengo demasiados pagos",
+            "qué pagos tengo", "que pagos tengo",
+            "qué debo pagar", "que debo pagar",
+            "mis pagos", "mis deudas"
+        ]
+
+        if any(q in t for q in agenda_queries):
+            return "consulta_agenda"
+
+        # =====================================================
+        # 1) PRIORIDAD MÁXIMA: DELETE (destructivo)
+        # =====================================================
+        if any(w in t for w in [
+            "borra", "borrar", "elimina", "eliminar",
+            "quita", "quitar", "remueve", "remover",
+            "suprime", "suprimir"
+        ]):
+            return "reminder.remove"
+
+        # =====================================================
+        # 2) EDITAR RECORDATORIO
+        # =====================================================
+        if any(w in t for w in [
+            "cambia", "cambiar", "modifica", "modificar",
+            "muévelo", "muevelo", "mover",
+            "adelanta", "atrasa", "ajusta", "edita"
+        ]):
+            return "reminder.edit"
+
+        # =====================================================
+        # 3) CONFIRMAR (solo si existe pending_reminder)
+        # =====================================================
+        if any(phrase in t for phrase in [
+            "sí, está bien", "si, esta bien",
+            "está bien así", "esta bien asi",
+            "confirma", "confirmalo", "confirmar",
+            "dale, hazlo", "sí, hazlo", "si, hazlo",
+            "ok, crea", "ok crea"
+        ]):
+            return "reminder.confirm"
+
+        # =====================================================
+        # 4) CREAR RECORDATORIO
+        # =====================================================
+        if any(w in t for w in [
+            "recuérdame", "recuerdame",
+            "anota", "agenda", "agéndame", "agendame",
+            "crea", "crear",
+            "programa"
+        ]):
+            return "reminder.create"
+
+        # =====================================================
+        # 5) CONSULTAR RECORDATORIOS (último)
+        # =====================================================
+        if any(w in t for w in [
+            "qué recordatorios tengo",
+            "que recordatorios tengo",
+            "mis recordatorios",
+            "ver recordatorios",
+            "lista de recordatorios"
+        ]):
+            return "reminder.query"
+
+        return None
 
     # ================================================================
     # LLM FALLBACK
@@ -91,14 +103,8 @@ Opciones:
 - reminder.query
 - reminder.edit
 - reminder.confirm
+- consulta_agenda
 - conversation.general
-
-Ejemplos:
-"qué recordatorios tengo" → reminder.query
-"recuérdame tomar agua mañana" → reminder.create
-"quita el recordatorio de agua" → reminder.remove
-"cambia el recordatorio de luz para mañana" → reminder.edit
-"sí, está bien mañana a las 5" → reminder.confirm
 
 Mensaje:
 "{text}"
