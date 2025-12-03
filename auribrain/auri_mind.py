@@ -188,6 +188,34 @@ class AuriMindV7_8:
 
         ctx = self.context.get_daily_context()
         txt = user_msg.lower()
+        # ===========================================================
+        # FIX V7.9 — BYPASS TOTAL DE MODOS PARA PREGUNTAS TÉCNICAS
+        # ===========================================================
+
+        TECH_KEYWORDS = [
+            "derivada", "integral", "límite", "limite", "cálculo", "calculo",
+            "ecuación", "resolver", "resultado", "matemática", "matematica",
+            "función", "funcion", "f de x", "f(x)", "x^", "dx", "∫", "deriva",
+            "algebra", "algebraico", "polinomio", "racional", "fracción",
+            "programación", "codigo", "código", "debug", "error", "variable",
+            "api", "backend", "flutter", "python", "java", "dart", "compilar",
+            "computo", "hpc", "cluster", "algoritmo", "resolver",
+            "tarea", "universidad", "homework", "ejercicio",
+            "expresión", "expresion", "simplifica", "calcula",
+        ]
+
+        # Palabras que confunden motores emocionales al inicio de frase
+        NEUTRAL_FILLERS = ["ok", "okay", "vale", "bien", "ajá", "aja"]
+
+        is_technical_query = (
+            any(k in txt for k in TECH_KEYWORDS)
+            or txt.startswith(tuple(NEUTRAL_FILLERS))
+        )
+
+            # Si la consulta es técnica → deshabilitar TODOS los modos automáticos
+        if is_technical_query:
+            skip_modes = True
+
 
         # ↓↓↓ CONTROL DE MODOS ESPECIALES
         skip_modes = self._is_direct_question(user_msg)
@@ -354,34 +382,37 @@ class AuriMindV7_8:
                 "action": None,
             }
 
+            # =======================================================
+        # 🔥 8) SALUD MENTAL — FIX COMPLETO V7.9
         # =======================================================
-        # 🔥 8) SALUD MENTAL (con bypass inteligente)
-        # =======================================================
-        is_first_mental = self.mental.detect(txt, stress)
 
-        if not skip_modes and not is_info_query and is_first_mental:
-            HELP_TRIGGERS = [
-                "ayúdame", "ayudame", "ayudarme",
-                "organizame", "organízame",
-                "reorganiza", "reorganizame", "reorganízame",
-                "ordenar mi día", "ordenar mi dia",
-                "mi agenda", "organizar agenda",
-                "qué puedo hacer", "que puedo hacer",
-            ]
+        if (
+            not skip_modes
+            and not is_info_query
+            and not is_technical_query  # ← FIX CLAVE
+        ):
+            is_first_mental = self.mental.detect(txt, stress)
 
-            # Si el usuario explícitamente pide ayuda práctica / organización,
-            # evitamos repetir el mensaje de contención y dejamos que Focus/Rutinas respondan.
-            if any(k in txt for k in HELP_TRIGGERS):
-                pass  # no devolvemos salud mental, seguimos pipeline
-            else:
-                msg = self.mental.respond()
-                return {
-                    "final": msg,
-                    "raw": msg,
-                    "intent": "mental",
-                    "voice_id": "alloy",
-                    "action": None,
-                }
+            if is_first_mental:
+                HELP_TRIGGERS = [
+                    "ayúdame", "ayudame", "ayudarme",
+                    "organizame", "organízame",
+                    "reorganiza", "reorganizame", "reorganízame",
+                    "ordenar mi día", "ordenar mi dia",
+                    "mi agenda", "organizar agenda",
+                    "qué puedo hacer", "que puedo hacer",
+                ]
+
+                if not any(k in txt for k in HELP_TRIGGERS):
+                    msg = self.mental.respond()
+                    return {
+                        "final": msg,
+                        "raw": msg,
+                        "intent": "mental",
+                        "voice_id": "alloy",
+                        "action": None,
+                    }
+
 
         # =======================================================
         # 🔥 9) RUTINAS
