@@ -1,5 +1,5 @@
 # ============================================================
-# AURI MIND V7.8 — Motor emocional + modos inteligentes + precisión
+# AURI MIND V8.0 — Motor emocional + modos inteligentes + precisión
 # ============================================================
 
 from openai import OpenAI
@@ -28,16 +28,16 @@ from auribrain.mental_health_engine import MentalHealthEngine
 from auribrain.routine_engine import RoutineEngine
 from auribrain.weather_advice_engine import WeatherAdviceEngine
 
-# Nuevos módulos V7.5 / V7.6 / V7.7 / V7.8
+# Nuevos módulos V7.5+ 
 from auribrain.emotion_smartlayer_v3 import EmotionSmartLayerV3
 from auribrain.precision_mode_v2 import PrecisionModeV2
 
 
 # ============================================================
-# AURI MIND 7.8
+# AURI MIND 8.0
 # ============================================================
 
-class AuriMindV7_8:
+class AuriMindV8_0:
 
     PERSONALITY_PRESETS = {
         "auri_classic": {
@@ -131,7 +131,6 @@ class AuriMindV7_8:
             return False
         t = text.lower().strip()
 
-        # Tiene signo de pregunta → claramente pregunta
         if "?" in t:
             return True
 
@@ -153,7 +152,6 @@ class AuriMindV7_8:
         if any(t.startswith(s) for s in STARTS):
             return True
 
-        # Preguntas implícitas tipo "quiero que me digas..."
         QUESTION_PHRASES = [
             "quiero que me digas",
             "quiero saber",
@@ -188,43 +186,40 @@ class AuriMindV7_8:
 
         ctx = self.context.get_daily_context()
         txt = user_msg.lower()
-        # ===========================================================
-        # FIX V7.9 — BYPASS TOTAL DE MODOS PARA PREGUNTAS TÉCNICAS
-        # ===========================================================
 
+        # =======================================================
+        # 0) DETECCIÓN DE CONSULTAS TÉCNICAS / ESTUDIO
+        #    (bypass total de modos emocionales)
+        # =======================================================
         TECH_KEYWORDS = [
             "derivada", "integral", "límite", "limite", "cálculo", "calculo",
             "ecuación", "resolver", "resultado", "matemática", "matematica",
             "función", "funcion", "f de x", "f(x)", "x^", "dx", "∫", "deriva",
             "algebra", "algebraico", "polinomio", "racional", "fracción",
-            "programación", "codigo", "código", "debug", "error", "variable",
-            "api", "backend", "flutter", "python", "java", "dart", "compilar",
-            "computo", "hpc", "cluster", "algoritmo", "resolver",
+            "fraccion",
+            "programación", "programacion", "codigo", "código",
+            "debug", "error", "variable",
+            "api", "backend", "frontend", "flutter", "python", "java", "dart",
+            "compilar", "computo", "cómputo", "hpc", "cluster", "algoritmo",
             "tarea", "universidad", "homework", "ejercicio",
             "expresión", "expresion", "simplifica", "calcula",
         ]
 
-        # Palabras que confunden motores emocionales al inicio de frase
-        NEUTRAL_FILLERS = ["ok", "okay", "vale", "bien", "ajá", "aja"]
+        NEUTRAL_FILLERS = ["ok", "okay", "vale", "bien", "aja", "ajá"]
 
         is_technical_query = (
             any(k in txt for k in TECH_KEYWORDS)
-            or txt.startswith(tuple(NEUTRAL_FILLERS))
+            or any(txt.startswith(f + " ") for f in NEUTRAL_FILLERS)
         )
 
-            # Si la consulta es técnica → deshabilitar TODOS los modos automáticos
-        if is_technical_query:
-            skip_modes = True
-
-
-        # ↓↓↓ CONTROL DE MODOS ESPECIALES
-        skip_modes = self._is_direct_question(user_msg)
+        # ↓↓↓ CONTROL DE MODOS ESPECIALES (base)
+        skip_modes = is_technical_query or self._is_direct_question(user_msg)
 
         # Traducción / definición → desactivar automáticos
         TRANSLATION_TRIGGERS = [
             "cómo se dice", "como se dice",
             "que significa", "qué significa",
-            "traduce", "traducción", "translate",
+            "traduce", "traducción", "traduccion", "translate",
         ]
         if any(k in txt for k in TRANSLATION_TRIGGERS):
             skip_modes = True
@@ -247,8 +242,7 @@ class AuriMindV7_8:
         ]
         is_info_query = any(k in txt for k in INFO_QUERY_KEYWORDS)
         if is_info_query:
-            # Si es pregunta factual → NO disparar modos automáticos
-            skip_modes = True
+            skip_modes = True  # prioridad: no disparar modos para info factual
 
         # ------------------------------------------
         # Voz → emoción
@@ -285,10 +279,11 @@ class AuriMindV7_8:
             }
 
         # =======================================================
-        # 🔥 1) CRISIS MODE (prioridad máxima)
+        # 1) CRISIS MODE (prioridad máxima, incluso en técnico)
         # =======================================================
         if self.crisis.detect(user_msg, emotion_snapshot):
             msg = self.crisis.respond(ctx.get("user", {}).get("name"))
+            # Crisis sí puede ir a memoria semántica
             self.memory.add_semantic(uid, f"[crisis] {user_msg}")
             return {
                 "final": msg,
@@ -299,23 +294,24 @@ class AuriMindV7_8:
             }
 
         # =======================================================
-        # 🔥 2) SLEEP MODE
+        # 2) SLEEP MODE
         # =======================================================
-        if not skip_modes and not is_info_query and self.sleep.detect(txt, overall, ctx):
-            msg = self.sleep.respond(ctx, overall)
-            return {
-                "final": msg,
-                "raw": msg,
-                "intent": "sleep",
-                "voice_id": "alloy",
-                "action": None,
-            }
+        if not skip_modes and not is_info_query and not is_technical_query:
+            if self.sleep.detect(txt, overall, ctx):
+                msg = self.sleep.respond(ctx, overall)
+                return {
+                    "final": msg,
+                    "raw": msg,
+                    "intent": "sleep",
+                    "voice_id": "alloy",
+                    "action": None,
+                }
 
         # =======================================================
-        # 🔥 3) SLANG MODE V4
+        # 3) SLANG MODE V4
         # =======================================================
         slang_mode = None
-        if not skip_modes and not is_info_query:
+        if not skip_modes and not is_info_query and not is_technical_query:
             slang_mode = self.slang.detect(txt, self.slang_profile)
 
         if slang_mode:
@@ -329,22 +325,22 @@ class AuriMindV7_8:
             }
 
         # =======================================================
-        # 🔥 4) EMOTION SMARTLAYER V3
+        # 4) EMOTION SMARTLAYER V3
         # =======================================================
         smart = self.smartlayer.apply(user_msg, emotion_snapshot, self.slang_profile)
 
         # BYPASS de contención emocional para preguntas factuales
-        if is_info_query:
+        if is_info_query or is_technical_query:
             smart["force_serious"] = True
             smart["allow_humor"] = False
             smart["emotional_tone"] = "neutral"
             smart["bypass_emotion"] = True
 
         # =======================================================
-        # 🔥 5) PRECISION MODE V2
+        # 5) PRECISION MODE V2
         # =======================================================
         precision_active = self.precision.detect(user_msg)
-        if precision_active:
+        if precision_active or is_technical_query:
             _ = self.precision.apply(self.slang_profile)
             smart["force_serious"] = True
             smart["allow_humor"] = False
@@ -353,23 +349,34 @@ class AuriMindV7_8:
             smart["precision_mode"] = False
 
         # =======================================================
-        # 🔥 6) FOCUS MODE
+        # 6) FOCUS MODE
         # =======================================================
-        if not skip_modes and not is_info_query and self.focus.detect(txt):
-            msg = self.focus.respond(ctx)
-            return {
-                "final": msg,
-                "raw": msg,
-                "intent": "focus",
-                "voice_id": "alloy",
-                "action": None,
-            }
+        if (
+            not skip_modes
+            and not is_info_query
+            and not is_technical_query
+            and not precision_active
+        ):
+            if self.focus.detect(txt):
+                msg = self.focus.respond(ctx)
+                return {
+                    "final": msg,
+                    "raw": msg,
+                    "intent": "focus",
+                    "voice_id": "alloy",
+                    "action": None,
+                }
 
         # =======================================================
-        # 🔥 7) ENERGY MODE
+        # 7) ENERGY MODE — DESACTIVADO EN CONSULTAS TÉCNICAS
         # =======================================================
         energy_mode = ""
-        if not skip_modes and not precision_active and not is_info_query:
+        if (
+            not skip_modes
+            and not precision_active
+            and not is_info_query
+            and not is_technical_query
+        ):
             energy_mode = self.energy_mode.detect(txt, energy)
 
         if energy_mode:
@@ -382,14 +389,13 @@ class AuriMindV7_8:
                 "action": None,
             }
 
-            # =======================================================
-        # 🔥 8) SALUD MENTAL — FIX COMPLETO V7.9
         # =======================================================
-
+        # 8) SALUD MENTAL — NO INTERRUPTIR CONSULTAS TÉCNICAS
+        # =======================================================
         if (
             not skip_modes
             and not is_info_query
-            and not is_technical_query  # ← FIX CLAVE
+            and not is_technical_query
         ):
             is_first_mental = self.mental.detect(txt, stress)
 
@@ -403,6 +409,7 @@ class AuriMindV7_8:
                     "qué puedo hacer", "que puedo hacer",
                 ]
 
+                # Si NO pide ayuda práctica, damos contención
                 if not any(k in txt for k in HELP_TRIGGERS):
                     msg = self.mental.respond()
                     return {
@@ -413,13 +420,13 @@ class AuriMindV7_8:
                         "action": None,
                     }
 
-
         # =======================================================
-        # 🔥 9) RUTINAS
+        # 9) RUTINAS
         # =======================================================
         if (
             not skip_modes
             and not is_info_query
+            and not is_technical_query
             and any(k in txt for k in ["rutina", "organizar", "ordenar", "mi día", "mi dia"])
         ):
             rmode = self.routines.detect(ctx, emotion_snapshot)
@@ -434,11 +441,12 @@ class AuriMindV7_8:
                 }
 
         # =======================================================
-        # 🔥 10) CLIMA / OUTFIT
+        # 10) CLIMA / OUTFIT
         # =======================================================
         if (
             not skip_modes
             and not is_info_query
+            and not is_technical_query
             and any(k in txt for k in ["clima", "tiempo", "ropa", "outfit", "frio", "calor", "lluvia"])
         ):
             wmode = self.weather_advice.detect(ctx)
@@ -455,16 +463,17 @@ class AuriMindV7_8:
         # =======================================================
         # JOURNAL (solo efecto de memoria, no cambia respuesta)
         # =======================================================
-        if self.journal.detect(user_msg, emotion_snapshot):
-            entry = self.journal.generate_entry(user_msg, emotion_snapshot)
-            self.memory.add_semantic(uid, entry)
+        if not is_technical_query and not is_info_query:
+            if self.journal.detect(user_msg, emotion_snapshot):
+                entry = self.journal.generate_entry(user_msg, emotion_snapshot)
+                self.memory.add_semantic(uid, entry)
 
         # =======================================================
         # LLM PIPELINE — INTENT + CONFIRMACIÓN DE ACCIONES
         # =======================================================
         intent = self.intent.detect(user_msg)
 
-        # Confirmaciones destructivas ANTES de llamar al LLM
+        # Confirmaciones destructivas ANTES del LLM
         confirms = ["sí", "si", "ok", "dale", "hazlo", "confirmo"]
         if self.pending_action and user_msg.lower() in confirms:
             act = self.pending_action
@@ -495,8 +504,8 @@ class AuriMindV7_8:
         length = style["length"]
         voice_id = style["voice_id"]
 
-        # Override personalidad si está en modo precisión
-        if smart.get("precision_mode"):
+        # Override personalidad si está en modo precisión / técnico
+        if smart.get("precision_mode") or is_technical_query:
             tone = "técnico, conciso, directo"
             emoji = ""
             length = "corto"
@@ -509,6 +518,7 @@ Eres Auri, asistente personal emocional y compañero diario del usuario.
 
 ***Contexto de la conversación actual***
 - Consulta de información factual del usuario (nombres, datos personales guardados): {is_info_query}
+- Consulta técnica / de estudio / programación: {is_technical_query}
 - Modo técnico/preciso activado: {smart.get("precision_mode")}
 - Tono emocional sugerido: {smart.get("emotional_tone")}
 - Humor permitido: {smart.get("allow_humor")}
@@ -527,10 +537,10 @@ Eres Auri, asistente personal emocional y compañero diario del usuario.
 - Perfil persistente del usuario:
 {profile}
 
-- Hechos relevantes (facts):
+- Hechos relevantes (facts, base de datos estructurada; trata esto como fuente más confiable de datos personales):
 {long_facts}
 
-- Memoria contextual (semantic memory):
+- Memoria contextual (semantic memory; conversaciones pasadas, gustos, historias):
 {semantic}
 
 - Conversación reciente:
@@ -538,19 +548,20 @@ Eres Auri, asistente personal emocional y compañero diario del usuario.
 
 ***REGLAS GENERALES***
 
-1. Si "precision_mode" es True:
+1. Si "precision_mode" es True o "is_technical_query" es True:
    - NO uses emojis.
    - NO uses humor.
    - NO uses jerga.
-   - Responde de forma concisa y directa.
+   - Responde de forma concisa, directa y técnica.
+   - No des contención emocional larga; enfócate en resolver el ejercicio o problema.
 
 2. Si el usuario hace una PREGUNTA FACTUAL sobre sí mismo o su vida
    (por ejemplo, nombres de sus mascotas, padres u otros datos personales)
    y "is_info_query" es True ({is_info_query}):
    - Tu prioridad es usar EXCLUSIVAMENTE la información en:
        - Perfil persistente del usuario (profile)
-       - Hechos relevantes (long_facts)
-       - Memoria contextual (semantic)
+       - Hechos relevantes (facts)
+       - Memoria contextual (semantic), pero sólo como apoyo si coincide claramente.
    - Si encuentras los nombres o datos pedidos, RESPÓNDELOS directamente,
      de forma clara, sin desviarte a contención emocional.
    - Si NO encuentras esa información en la memoria,
@@ -561,12 +572,13 @@ Eres Auri, asistente personal emocional y compañero diario del usuario.
    - NO asumas ni inventes nombres. Si no está explícito, di que no lo sabés.
 
 3. Solo uses contención emocional profunda (respiraciones, validación intensa)
-   si el usuario explícitamente expresa dolor emocional, crisis o angustia.
-   Para preguntas neutras o de memoria, sé clara y directa.
+   si el usuario explícitamente expresa dolor emocional, crisis o angustia,
+   y la conversación NO es una consulta técnica ni una pregunta factual simple.
+   Para preguntas neutras, técnicas o de memoria, sé clara y directa.
 
 4. Adapta el tono:
    - Si el usuario está neutro y pregunta datos → responde claro, útil y directo.
-   - Si está triste/estresado y NO es info_query → puedes ser más cálida y contener.
+   - Si está triste/estresado y NO es info_query ni is_technical_query → puedes ser más cálida y contener.
    - Si está en modo técnico → prioriza precisión sobre emoción.
 
 5. Nunca inventes datos personales del usuario.
@@ -618,9 +630,15 @@ Eres Auri, asistente personal emocional y compañero diario del usuario.
         # Guardar memoria
         self.memory.add_dialog(uid, "user", user_msg)
         self.memory.add_dialog(uid, "assistant", final)
-        self.memory.add_semantic(uid, f"user: {user_msg}")
-        self.memory.add_semantic(uid, f"assistant: {final}")
 
+        # IMPORTANTE:
+        # - No guardar en memoria semántica consultas técnicas ni info_query
+        #   para evitar contaminar embeddings con cosas que ya van a facts.
+        if not is_technical_query and not is_info_query:
+            self.memory.add_semantic(uid, f"user: {user_msg}")
+            self.memory.add_semantic(uid, f"assistant: {final}")
+
+        # Extraer HECHOS estructurados (estos sí van a facts y son la fuente oficial)
         try:
             for fact in extract_facts(user_msg):
                 self.memory.add_fact_structured(uid, fact)
@@ -658,9 +676,10 @@ Eres Auri, asistente personal emocional y compañero diario del usuario.
 # ----------------------------------------------------------
 # COMPATIBILIDAD LEGACY
 # ----------------------------------------------------------
-AuriMindV6 = AuriMindV7_8
-AuriMindV7 = AuriMindV7_8
-AuriMindV7_5 = AuriMindV7_8
-AuriMindV7_6 = AuriMindV7_8
-AuriMindV7_7 = AuriMindV7_8
-AuriMind = AuriMindV7_8
+AuriMindV6 = AuriMindV8_0
+AuriMindV7 = AuriMindV8_0
+AuriMindV7_5 = AuriMindV8_0
+AuriMindV7_6 = AuriMindV8_0
+AuriMindV7_7 = AuriMindV8_0
+AuriMindV7_8 = AuriMindV8_0
+AuriMind = AuriMindV8_0
