@@ -1,5 +1,5 @@
 # ============================================================
-# AURI MIND V7.7 — Motor emocional + modos inteligentes + precisión
+# AURI MIND V7.8 — Motor emocional + modos inteligentes + precisión
 # ============================================================
 
 from openai import OpenAI
@@ -28,16 +28,16 @@ from auribrain.mental_health_engine import MentalHealthEngine
 from auribrain.routine_engine import RoutineEngine
 from auribrain.weather_advice_engine import WeatherAdviceEngine
 
-# Nuevos módulos V7.5 / V7.6 / V7.7
+# Nuevos módulos V7.5 / V7.6 / V7.7 / V7.8
 from auribrain.emotion_smartlayer_v3 import EmotionSmartLayerV3
 from auribrain.precision_mode_v2 import PrecisionModeV2
 
 
 # ============================================================
-# AURI MIND 7.7
+# AURI MIND 7.8
 # ============================================================
 
-class AuriMindV7_7:
+class AuriMindV7_8:
 
     PERSONALITY_PRESETS = {
         "auri_classic": {
@@ -429,9 +429,23 @@ class AuriMindV7_7:
             self.memory.add_semantic(uid, entry)
 
         # =======================================================
-        # LLM PIPELINE
+        # LLM PIPELINE — INTENT + CONFIRMACIÓN DE ACCIONES
         # =======================================================
         intent = self.intent.detect(user_msg)
+
+        # Confirmaciones destructivas ANTES de llamar al LLM
+        confirms = ["sí", "si", "ok", "dale", "hazlo", "confirmo"]
+        if self.pending_action and user_msg.lower() in confirms:
+            act = self.pending_action
+            act["payload"]["confirmed"] = True
+            self.pending_action = None
+            return {
+                "final": "Perfecto, lo hago ahora 💜",
+                "raw": "Perfecto, lo hago ahora 💜",
+                "intent": intent,
+                "voice_id": "alloy",
+                "action": act,
+            }
 
         profile = self.memory.get_user_profile(uid)
         long_facts = self.memory.get_facts(uid)
@@ -542,6 +556,7 @@ Eres Auri, asistente personal emocional y compañero diario del usuario.
         # ACCIONES
         # =======================================================
         action_result = self.actions.handle(
+            user_id=uid,
             intent=intent,
             user_msg=user_msg,
             context=ctx,
@@ -551,8 +566,6 @@ Eres Auri, asistente personal emocional y compañero diario del usuario.
         final = action_result.get("final") or raw_answer
         action = action_result.get("action")
 
-        # Confirmaciones destructivas
-        confirms = ["sí", "si", "ok", "dale", "hazlo", "confirmo"]
         destructive_map = {
             "delete_all_reminders": "¿Querés eliminar *todos* tus recordatorios?",
             "delete_category": "¿Eliminar los recordatorios de esa categoría?",
@@ -560,23 +573,12 @@ Eres Auri, asistente personal emocional y compañero diario del usuario.
             "delete_reminder": "¿Eliminar ese recordatorio?",
         }
 
-        if self.pending_action and user_msg.lower() in confirms:
-            act = self.pending_action
-            act["payload"]["confirmed"] = True
-            self.pending_action = None
-            return {
-                "final": "Perfecto, lo hago ahora 💜",
-                "raw": final,
-                "intent": intent,
-                "voice_id": voice_id,
-                "action": act,
-            }
-
         if action and action.get("type") in destructive_map:
             self.pending_action = action
+            question = destructive_map[action["type"]]
             return {
-                "final": destructive_map[action["type"]],
-                "raw": destructive_map[action["type"]],
+                "final": question,
+                "raw": question,
                 "intent": intent,
                 "voice_id": voice_id,
                 "action": None,
@@ -625,8 +627,9 @@ Eres Auri, asistente personal emocional y compañero diario del usuario.
 # ----------------------------------------------------------
 # COMPATIBILIDAD LEGACY
 # ----------------------------------------------------------
-AuriMindV6 = AuriMindV7_7
-AuriMindV7 = AuriMindV7_7
-AuriMindV7_5 = AuriMindV7_7
-AuriMindV7_6 = AuriMindV7_7
-AuriMind = AuriMindV7_7
+AuriMindV6 = AuriMindV7_8
+AuriMindV7 = AuriMindV7_8
+AuriMindV7_5 = AuriMindV7_8
+AuriMindV7_6 = AuriMindV7_8
+AuriMindV7_7 = AuriMindV7_8
+AuriMind = AuriMindV7_8
