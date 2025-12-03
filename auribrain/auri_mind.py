@@ -131,8 +131,9 @@ class AuriMindV7_5:
     def _is_direct_question(self, text: str) -> bool:
         if not text:
             return False
-        t = text.lower()
+        t = text.lower().strip()
 
+        # Tiene signo de pregunta → claramente pregunta
         if "?" in t:
             return True
 
@@ -151,7 +152,21 @@ class AuriMindV7_5:
             "enséñame", "enseñame",
         ]
 
-        return any(t.startswith(s) for s in STARTS)
+        if any(t.startswith(s) for s in STARTS):
+            return True
+
+        # Preguntas implícitas tipo "quiero que me digas..."
+        QUESTION_PHRASES = [
+            "quiero que me digas",
+            "quiero saber",
+            "quisiera saber",
+        ]
+
+        if any(p in t for p in QUESTION_PHRASES):
+            return True
+
+        return False
+
 
 
     # ----------------------------------------------------------
@@ -260,15 +275,38 @@ class AuriMindV7_5:
             msg = self.focus.respond(ctx)
             return {"final": msg, "raw": msg, "intent": "focus", "voice_id": "alloy", "action": None}
 
-
         # =======================================================
         # 🔥 7) ENERGY MODE
         # =======================================================
-        if not skip_modes and not precision_active:
+        # No activar energía si el usuario está pidiendo información concreta
+        INFO_QUERY_KEYWORDS = [
+            "cómo se llaman", "como se llaman",
+            "cómo se llama", "como se llama",
+            "nombre de mis", "nombres de mis",
+            "nombre de mi", "nombres de mi",
+            "mis mascotas", "mis animales",
+            "mis padres", "mi mamá", "mi mama", "mi papá", "mi papa",
+            "dime el nombre de",
+            "quiero que me digas el nombre",
+            "quiero que me digas cómo se llama",
+            "quiero que me digas como se llama",
+        ]
+
+        is_info_query = any(k in txt for k in INFO_QUERY_KEYWORDS)
+
+        energy_mode = ""
+        if not skip_modes and not precision_active and not is_info_query:
             energy_mode = self.energy_mode.detect(txt, energy)
-            if energy_mode:
-                msg = self.energy_mode.respond(energy_mode, ctx)
-                return {"final": msg, "raw": msg, "intent": "energy", "voice_id": "alloy", "action": None}
+
+        if energy_mode:
+            msg = self.energy_mode.respond(energy_mode, ctx)
+            return {
+                "final": msg,
+                "raw": msg,
+                "intent": "energy",
+                "voice_id": "alloy",
+                "action": None,
+            }
 
 
         # =======================================================
