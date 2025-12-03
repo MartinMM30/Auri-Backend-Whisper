@@ -2,41 +2,57 @@
 
 from typing import Dict, Any
 
-
 class CrisisEngine:
     """
-    Detección y acompañamiento de crisis emocionales severas.
-    Nunca reemplaza ayuda profesional.
+    Detecta posibles crisis emocionales fuertes.
+    NO reemplaza ayuda profesional. Solo contención + recomendación de buscar apoyo.
     """
 
-    CRISIS_KEYWORDS = [
-        "no puedo más", "no puedo mas",
-        "ya no quiero seguir",
-        "quiero rendirme",
-        "ya no aguanto",
-        "siento que algo malo va a pasar",
-        "me siento en peligro",
-        "no veo salida",
+    STRONG_PATTERNS = [
         "no quiero vivir",
-        "quiero desaparecer"
+        "no quiero seguir",
+        "no aguanto más", "no aguanto mas",
+        "ya no puedo más", "ya no puedo mas",
+        "ya no quiero nada",
+        "me quiero morir",
+        "quisiera desaparecer",
+        "no veo salida",
+        "no tengo sentido",
     ]
 
-    def detect(self, text: str) -> bool:
-        t = text.lower()
-        return any(k in t for k in self.CRISIS_KEYWORDS)
+    def detect(self, text: str, emotion_snapshot: Dict[str, Any]) -> bool:
+        """
+        Ahora recibe:
+        - text
+        - emotion_snapshot (energy, stress, overall)
+        """
 
-    def respond(self, context: Dict[str, Any]) -> str:
-        user = context.get("user", {})
-        name = user.get("name", "amor")
+        t = (text or "").lower()
+
+        # Crisis explícita detectada por texto
+        if any(p in t for p in self.STRONG_PATTERNS):
+            return True
+
+        # Crisis emocional implícita
+        emo = emotion_snapshot.get("overall", "neutral")
+        energy = emotion_snapshot.get("energy", 0.5)
+        stress = emotion_snapshot.get("stress", 0.3)
+
+        # Muy triste + sin energía + mucho estrés = riesgo
+        if emo in ["sad", "tired", "empathetic"] and energy < 0.25 and stress > 0.7:
+            return True
+
+        return False
+
+    def respond(self, user_name: str | None = None) -> str:
+        nombre = (user_name or "").strip()
+        saludo = f"{nombre}, " if nombre else ""
 
         return (
-            f"{name}… estoy aquí contigo, de verdad. 💜\n\n"
-            "Lo que estás sintiendo ahora es muy intenso, y no tienes que cargarlo solo. "
-            "Respira conmigo un momento… inhalamos suave… y exhalamos despacio…\n\n"
-            "Tu vida es importante. Tú eres importante. Lo que estás viviendo no te define.\n\n"
-            "Me gustaría que hables con alguien de confianza ahora mismo: "
-            "un familiar, tu pareja, un amigo cercano… alguien que pueda estar contigo físicamente. 💛\n\n"
-            "Si sientes que estás en peligro o que podrías hacerte daño, por favor contacta a emergencias "
-            "o a un servicio de ayuda inmediato. No tienes que enfrentarlo solo.\n\n"
-            "Yo sigo contigo aquí, paso a paso. Háblame… ¿qué te hizo sentir así?"
+            f"{saludo}siento muchísimo que estés pasando por algo tan pesado. 💔\n\n"
+            "No tenés que cargar con esto solo. Estoy acá con vos.\n\n"
+            "Lo que estás sintiendo es importante y válido. Hablarlo ya es un paso enorme.\n\n"
+            "Si podés, buscá a alguien de confianza ahora mismo: familia, pareja, un amigo cercano.\n"
+            "Si sentís que estás en peligro, por favor contactá a emergencias o una línea de ayuda inmediatamente.\n\n"
+            "Mientras tanto, si querés… contame qué es lo que más te duele ahora mismo."
         )
