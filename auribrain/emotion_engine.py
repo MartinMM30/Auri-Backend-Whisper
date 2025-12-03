@@ -6,31 +6,32 @@ from typing import Dict, Any, Optional
 
 class EmotionEngine:
     """
-    EmotionEngine V7
+    EmotionEngine V8 (mejorado)
 
-    Fusiona tres fuentes:
-    - Texto del usuario (contenido emocional explícito / implícito)
-    - Contexto diario (clima, pagos, exámenes, agenda)
-    - Voz (más adelante: etiqueta como 'happy', 'sad', etc.)
+    Fusiona:
+    - Emoción por texto
+    - Emoción por voz (cuando esté disponible)
+    - Contexto diario (pagos, clima, agenda, hora del día)
+    - Memoria emocional interna temporal
 
     Expone:
-    - update(user_text, context, voice_emotion=None) -> dict (snapshot de estado)
-    - get_state() -> dict
-    - get_slime_state() -> mapping listo para Rive
+    - update(user_text, context, voice_emotion=None) -> dict
+    - get_state()
+    - get_slime_state()
     """
 
     def __init__(self) -> None:
         now = datetime.utcnow()
         self.state: Dict[str, Any] = {
-            "auri_mood": "neutral",          # cómo se siente Auri por dentro
-            "user_emotion_text": "neutral",  # emoción detectada por texto
-            "user_emotion_voice": "neutral", # emoción detectada por voz (más adelante)
-            "overall": "neutral",            # estado combinado final
+            "auri_mood": "neutral",
+            "user_emotion_text": "neutral",
+            "user_emotion_voice": "neutral",
+            "overall": "neutral",
 
-            "energy": 0.6,       # 0–1
-            "stress": 0.2,       # 0–1
-            "affection": 0.4,    # 0–1
-            "focus": 0.5,        # 0–1
+            "energy": 0.6,
+            "stress": 0.2,
+            "affection": 0.4,
+            "focus": 0.5,
 
             "last_update": now,
             "last_user_text": "",
@@ -44,7 +45,7 @@ class EmotionEngine:
         }
 
     # ------------------------------------------------------
-    # API PÚBLICA
+    # API PRINCIPAL
     # ------------------------------------------------------
     def update(
         self,
@@ -52,183 +53,149 @@ class EmotionEngine:
         context: Dict[str, Any],
         voice_emotion: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """
-        Punto de entrada principal.
-        - user_text: texto crudo del usuario
-        - context: diccionario del ContextEngine.get_daily_context()
-        - voice_emotion: etiqueta simple ("happy", "sad", "angry", etc.) que
-                         luego pondremos desde el análisis de audio.
-        """
 
         now = datetime.utcnow()
         self._apply_time_decay(now)
 
-        # 1) Emoción desde texto
+        # 1) Texto → emoción
         text_emotion = self._detect_text_emotion(user_text or "")
         self.state["user_emotion_text"] = text_emotion
 
-        # 2) Emoción desde voz (opcional, aún podemos pasar None)
+        # 2) Voz → emoción (si está)
         voice_em = self._normalize_voice_emotion(voice_emotion)
         self.state["user_emotion_voice"] = voice_em
 
-        # 3) Flags desde contexto (clima, pagos, exámenes, horario)
+        # 3) Contexto → flags
         self._update_context_flags(context)
 
-        # 4) Aplicar impactos al estado interno
+        # 4) Aplicar impactos
         self._apply_text_impact(text_emotion)
         self._apply_voice_impact(voice_em)
         self._apply_context_impact(context)
 
-        # 5) Resolver estado global
+        # 5) Resolver estado emocional final
         overall = self._resolve_overall_state()
         self.state["overall"] = overall
         self.state["auri_mood"] = overall
 
+        # finalizar actualización
         self.state["last_update"] = now
         self.state["last_user_text"] = user_text
 
         return self.get_state()
 
     def get_state(self) -> Dict[str, Any]:
-        """Devuelve un snapshot del estado emocional actual."""
         return dict(self.state)
 
     def get_slime_state(self) -> Dict[str, Any]:
-        """
-        Mapeo listo para el Slime (Rive) y el TTS:
-        - mood_*: flags de estado
-        - energy_level, stress_level, affection_level
-        """
-        overall = self.state["overall"]
-        energy = self.state["energy"]
-        stress = self.state["stress"]
-        affection = self.state["affection"]
+        """Mapa limpio para animación en Rive"""
+        o = self.state["overall"]
 
         return {
-            "overall": overall,
-            "mood_happy": overall == "happy",
-            "mood_sad": overall == "sad",
-            "mood_tired": overall == "tired",
-            "mood_stressed": overall == "stressed",
-            "mood_empathetic": overall == "empathetic",
-            "mood_affectionate": overall == "affectionate",
-            "mood_neutral": overall == "neutral",
+            "overall": o,
+            "mood_happy": o == "happy",
+            "mood_sad": o == "sad",
+            "mood_tired": o == "tired",
+            "mood_stressed": o == "stressed",
+            "mood_empathetic": o == "empathetic",
+            "mood_affectionate": o == "affectionate",
+            "mood_neutral": o == "neutral",
 
-            "energy_level": energy,
-            "stress_level": stress,
-            "affection_level": affection,
+            "energy_level": self.state["energy"],
+            "stress_level": self.state["stress"],
+            "affection_level": self.state["affection"],
         }
 
     # ------------------------------------------------------
-    # DECAY TEMPORAL
+    # TIME DECAY – regula energía/estrés cuando pasa el tiempo
     # ------------------------------------------------------
     def _apply_time_decay(self, now: datetime) -> None:
-        """
-        Si ha pasado mucho tiempo desde la última actualización,
-        baja un poco estrés y emoción acumulada para que Auri
-        no se quede atrapada en un estado.
-        """
         last = self.state.get("last_update") or now
         elapsed = (now - last).total_seconds()
 
         if elapsed < 60:
             return
 
-        # cada 5 minutos, reducimos un poco
-        steps = elapsed / 300.0
+        steps = elapsed / 300.0  # cada 5 minutos
 
         self.state["stress"] = max(0.0, self.state["stress"] - 0.05 * steps)
-        self.state["affection"] = max(0.0, min(1.0, self.state["affection"] - 0.02 * steps))
-
-        # energía sube un poco si ha pasado tiempo (como descansar)
-        self.state["energy"] = max(0.0, min(1.0, self.state["energy"] + 0.03 * steps))
+        self.state["affection"] = max(0.0, self.state["affection"] - 0.02 * steps)
+        self.state["energy"] = min(1.0, self.state["energy"] + 0.03 * steps)
 
     # ------------------------------------------------------
-    # DETECCIÓN EMOCIONAL DESDE TEXTO
+    # DETECCIÓN EMOCIONAL POR TEXTO
     # ------------------------------------------------------
     def _detect_text_emotion(self, text: str) -> str:
-        """
-        Heurísticas multi-idioma (es, pt, en básico) para detectar la emoción principal.
-        """
-        t = (text or "").lower()
-
-        if not t.strip():
+        t = (text or "").lower().strip()
+        if not t:
             return "neutral"
 
-        # ⚠️ Emociones negativas fuertes primero
+        # depresivo / tristeza fuerte
         sad_words = [
-            "triste", "deprimido", "deprimida", "mal", "vacío", "vacía",
-            "solo", "sola", "solitario", "solitaria", "desanimado", "desanimada",
-            "cansado", "cansada", "agotado", "agotada", "quebrado",
-            "derrotado", "llorando", "llorar",
-            "cansado demais", "cansada demais",
-            "tired", "exhausted", "drained",
+            "triste", "deprimido", "mal", "muy mal", "vacío", "solo",
+            "desanimado", "llorando", "agotado", "quebrado", "drained",
         ]
         if any(w in t for w in sad_words):
-            # si además aparecen cosas tipo "cansado" + "feliz", puede ser mixed
-            if "feliz" in t or "contento" in t or "contenta" in t or "happy" in t:
+            if "feliz" in t or "contento" in t:
                 return "mixed_tired_happy"
             return "sad"
 
-        anxious_words = [
-            "ansioso", "ansiosa", "ansiedad", "preocupado", "preocupada",
-            "nervioso", "nerviosa", "miedo", "temor", "inquieto", "inquieta",
-            "overthinking",
+        # ansiedad / preocupación
+        anxious = [
+            "ansioso", "ansiosa", "ansiedad", "preocupado", "nervioso",
+            "miedo", "temor", "inquieto", "overthinking",
         ]
-        if any(w in t for w in anxious_words):
+        if any(w in t for w in anxious):
             return "worried"
 
-        angry_words = [
-            "enojado", "enojada", "molesto", "molesta", "furioso", "furiosa",
-            "harto", "harta", "irritado", "irritada", "raiva", "bravo", "brava",
-            "angry", "mad",
+        # enojo
+        angry = [
+            "enojado", "molesto", "furioso", "irritado", "harto",
+            "raiva", "bravo", "angry", "mad",
         ]
-        if any(w in t for w in angry_words):
+        if any(w in t for w in angry):
             return "angry"
 
-        affection_words = [
+        # afecto
+        affection = [
             "te quiero", "te amo", "me gustas", "eres importante",
-            "me haces feliz", "te extraño", "sos importante",
-            "love you", "i love you", "amo você",
+            "me haces feliz", "te extraño", "love you", "amo você",
         ]
-        if any(w in t for w in affection_words):
+        if any(w in t for w in affection):
             return "affectionate"
 
-        happy_words = [
-            "feliz", "contento", "contenta", "genial", "perfecto", "perfecta",
-            "me fue bien", "todo bien", "muy bien", "me siento bien",
-            "emocionado", "emocionada", "animado", "animada",
-            "increíble", "espectacular", "ótimo", "maravilhoso",
-            "awesome", "great", "fantastic",
+        # felicidad
+        happy = [
+            "feliz", "contento", "genial", "perfecto", "me fue bien",
+            "muy bien", "emocionado", "animado", "increíble", "awesome",
         ]
-        if any(w in t for w in happy_words):
+        if any(w in t for w in happy):
             return "happy"
 
-        bored_words = [
-            "aburrido", "aburrida", "no sé qué hacer", "nada que hacer",
-            "tedioso", "cansado de todo", "bored",
+        # aburrimiento
+        bored = [
+            "aburrido", "tedioso", "no sé qué hacer", "bored",
         ]
-        if any(w in t for w in bored_words):
+        if any(w in t for w in bored):
             return "bored"
 
-        # mención explícita de cansancio sin otras cosas muy negativas
-        tired_words = [
+        # cansancio
+        tired = [
             "cansado", "cansada", "exhausto", "exausta",
-            "muito cansado", "muito cansada",
+            "muy cansado", "muito cansado",
         ]
-        if any(w in t for w in tired_words):
+        if any(w in t for w in tired):
             return "tired"
 
         return "neutral"
 
     # ------------------------------------------------------
-    # VOZ (por ahora etiqueta, luego PCM→modelo)
+    # EMOCIÓN DE VOZ (cuando llegue modelo acústico)
     # ------------------------------------------------------
     def _normalize_voice_emotion(self, voice_emotion: Optional[str]) -> str:
         if not voice_emotion:
             return "neutral"
 
-        v = voice_emotion.lower().strip()
         mapping = {
             "joy": "happy",
             "happiness": "happy",
@@ -239,173 +206,155 @@ class EmotionEngine:
             "tired": "tired",
             "calm": "calm",
         }
-        return mapping.get(v, v or "neutral")
+        v = voice_emotion.lower().strip()
+        return mapping.get(v, v)
 
     # ------------------------------------------------------
-    # FLAGS DESDE CONTEXTO
+    # FLAGS DESDE CONTEXTO (pagos, clima, agenda)
     # ------------------------------------------------------
     def _update_context_flags(self, ctx: Dict[str, Any]) -> None:
         flags = self.state["context_flags"]
 
-        # weather
-        weather = ctx.get("weather", {}) or {}
+        weather = (ctx.get("weather") or {})
         desc = (weather.get("description") or "").lower()
         flags["bad_weather"] = any(k in desc for k in ["lluvia", "tormenta", "nublado", "storm", "rain"])
 
-        # pagos próximos
-        events = ctx.get("events", []) or []
+        # pagos y eventos próximos
+        events = ctx.get("events") or []
+        soon = 0
         now_iso = ctx.get("current_time_iso")
         try:
             now = datetime.fromisoformat(now_iso) if now_iso else datetime.utcnow()
-        except Exception:
+        except:
             now = datetime.utcnow()
 
-        soon_count = 0
         for ev in events:
-            when_str = ev.get("when")
-            if not when_str:
+            when = ev.get("when")
+            if not when:
                 continue
             try:
-                ev_dt = datetime.fromisoformat(when_str.replace("Z", "+00:00"))
-            except Exception:
-                continue
+                dt = datetime.fromisoformat(when.replace("Z", "+00:00"))
+                if 0 <= (dt - now).total_seconds() / 86400 <= 3:
+                    soon += 1
+            except:
+                pass
 
-            delta_days = (ev_dt - now).total_seconds() / 86400.0
-            if 0 <= delta_days <= 3:
-                soon_count += 1
+        flags["many_events_soon"] = soon >= 4
+        flags["many_payments_soon"] = len(ctx.get("payments") or []) >= 4
 
-        flags["many_events_soon"] = soon_count >= 4
-
-        # pagos base desde ctx["payments"]
-        payments = ctx.get("payments", []) or []
-        flags["many_payments_soon"] = len(payments) >= 4
-
-        # hora del día (para energía)
-        current_time = ctx.get("current_time_pretty") or ""
-        # formato "HH:MM"
+        # hora del día
         try:
-            hour = int((current_time.split(":")[0] or "12"))
-        except Exception:
+            hour = int((ctx.get("current_time_pretty", "12:00").split(":")[0]))
+        except:
             hour = 12
 
         flags["morning_time"] = 5 <= hour < 12
         flags["night_time"] = hour >= 21 or hour < 5
 
     # ------------------------------------------------------
-    # IMPACTOS SOBRE EL ESTADO
+    # IMPACTOS AL ESTADO INTERNO
     # ------------------------------------------------------
     def _apply_text_impact(self, emo: str) -> None:
-        # base
         if emo in ["sad", "worried", "angry", "tired", "mixed_tired_happy"]:
             self.state["affection"] = min(1.0, self.state["affection"] + 0.15)
 
         if emo == "sad":
             self.state["stress"] = min(1.0, self.state["stress"] + 0.15)
-            self.state["energy"] = max(0.0, self.state["energy"] - 0.1)
+            self.state["energy"] -= 0.1
 
         elif emo == "worried":
-            self.state["stress"] = min(1.0, self.state["stress"] + 0.2)
-            self.state["focus"] = max(0.0, self.state["focus"] - 0.05)
+            self.state["stress"] += 0.2
+            self.state["focus"] -= 0.05
 
         elif emo == "angry":
-            self.state["stress"] = min(1.0, self.state["stress"] + 0.25)
-            self.state["focus"] = min(1.0, self.state["focus"] + 0.05)
+            self.state["stress"] += 0.25
+            self.state["focus"] += 0.05
 
         elif emo == "affectionate":
-            self.state["affection"] = min(1.0, self.state["affection"] + 0.25)
-            self.state["stress"] = max(0.0, self.state["stress"] - 0.05)
+            self.state["affection"] += 0.25
+            self.state["stress"] -= 0.05
 
         elif emo == "happy":
-            self.state["energy"] = min(1.0, self.state["energy"] + 0.15)
-            self.state["stress"] = max(0.0, self.state["stress"] - 0.1)
+            self.state["energy"] += 0.15
+            self.state["stress"] -= 0.1
 
         elif emo == "bored":
-            self.state["energy"] = max(0.0, self.state["energy"] - 0.05)
-            self.state["focus"] = max(0.0, self.state["focus"] - 0.05)
+            self.state["energy"] -= 0.05
+            self.state["focus"] -= 0.05
 
         elif emo == "tired":
-            self.state["energy"] = max(0.0, self.state["energy"] - 0.15)
-            self.state["stress"] = min(1.0, self.state["stress"] + 0.05)
+            self.state["energy"] -= 0.15
+            self.state["stress"] += 0.05
 
         elif emo == "mixed_tired_happy":
-            self.state["energy"] = max(0.0, self.state["energy"] - 0.05)
-            self.state["stress"] = max(0.0, self.state["stress"] - 0.05)
-            self.state["affection"] = min(1.0, self.state["affection"] + 0.1)
+            self.state["energy"] -= 0.05
+            self.state["stress"] -= 0.05
+            self.state["affection"] += 0.1
 
     def _apply_voice_impact(self, emo: str) -> None:
-        """
-        Por ahora, usamos etiquetas simples.
-        Más adelante, esto podrá venir de un modelo acústico.
-        """
         if emo == "happy":
-            self.state["energy"] = min(1.0, self.state["energy"] + 0.1)
+            self.state["energy"] += 0.1
         elif emo in ["sad", "tired"]:
-            self.state["energy"] = max(0.0, self.state["energy"] - 0.1)
-            self.state["stress"] = min(1.0, self.state["stress"] + 0.05)
-        elif emo in ["angry"]:
-            self.state["stress"] = min(1.0, self.state["stress"] + 0.1)
+            self.state["energy"] -= 0.1
+            self.state["stress"] += 0.05
+        elif emo == "angry":
+            self.state["stress"] += 0.1
 
     def _apply_context_impact(self, ctx: Dict[str, Any]) -> None:
         flags = self.state["context_flags"]
 
         if flags["bad_weather"]:
-            # clima feo → un poco menos de energía
-            self.state["energy"] = max(0.0, self.state["energy"] - 0.05)
+            self.state["energy"] -= 0.05
 
         if flags["many_payments_soon"] or flags["many_events_soon"]:
-            # muchas cosas encima → estrés
-            self.state["stress"] = min(1.0, self.state["stress"] + 0.15)
+            self.state["stress"] += 0.15
 
         if flags["night_time"]:
-            self.state["energy"] = max(0.0, self.state["energy"] - 0.1)
+            self.state["energy"] -= 0.1
         elif flags["morning_time"]:
-            self.state["energy"] = min(1.0, self.state["energy"] + 0.05)
+            self.state["energy"] += 0.05
 
-        # un poco de foco extra si hay clases/exámenes
-        exams = ctx.get("exams", []) or []
-        classes = ctx.get("classes", []) or []
-        if exams or classes:
-            self.state["focus"] = min(1.0, self.state["focus"] + 0.05)
+        # clases/exámenes → más foco
+        if (ctx.get("exams") or []) or (ctx.get("classes") or []):
+            self.state["focus"] += 0.05
 
-        # clamp final
+        # clamping final
         self.state["energy"] = max(0.0, min(1.0, self.state["energy"]))
         self.state["stress"] = max(0.0, min(1.0, self.state["stress"]))
         self.state["affection"] = max(0.0, min(1.0, self.state["affection"]))
         self.state["focus"] = max(0.0, min(1.0, self.state["focus"]))
 
     # ------------------------------------------------------
-    # ESTADO GLOBAL
+    # RESOLUCIÓN EMOCIONAL
     # ------------------------------------------------------
     def _resolve_overall_state(self) -> str:
-        """
-        Decide una etiqueta final:
-        - happy, affectionate, stressed, tired, empathetic, neutral, sad
-        usando niveles internos + emoción de texto.
-        """
-        text_emo = self.state["user_emotion_text"]
-        energy = self.state["energy"]
-        stress = self.state["stress"]
-        affection = self.state["affection"]
+        emo = self.state["user_emotion_text"]
+        e = self.state["energy"]
+        s = self.state["stress"]
+        a = self.state["affection"]
 
-        # afecto alto → Auri responde en modo cariñoso
-        if affection > 0.7 and text_emo in ["happy", "affectionate"]:
+        # modo cariño
+        if a > 0.7 and emo in ["happy", "affectionate"]:
             return "affectionate"
 
-        # tristeza / preocupación
-        if text_emo in ["sad", "worried"]:
+        # empatía (usuario triste)
+        if emo in ["sad", "worried"]:
             return "empathetic"
 
-        # estrés fuerte
-        if stress > 0.7:
+        # estrés alto
+        if s > 0.7:
             return "stressed"
 
-        # cansancio marcado
-        if energy < 0.3:
+        # cansancio
+        if e < 0.3:
             return "tired"
 
         # feliz
-        if text_emo in ["happy", "mixed_tired_happy"] or energy > 0.75:
+        if emo in ["happy", "mixed_tired_happy"] or e > 0.75:
             return "happy"
 
-        # neutro por defecto
+        # gris / melancólico leve
+        if emo in ["bored"]:
+            return "sad"
+
         return "neutral"
