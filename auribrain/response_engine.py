@@ -1,51 +1,83 @@
+# auribrain/response_engine.py
+
 class ResponseEngine:
+    """
+    ResponseEngine V4 — Emotional Post-Processor
 
-    def build(self, intent, style, context, memory, user_msg, raw_answer):
+    Toma la respuesta del LLM y la adapta emocionalmente usando:
+    - emotion_state["overall"]
+    - personality_style
+    """
 
-        txt = user_msg.lower()
-        user = context.get("user", {})
-        weather = context.get("weather", {})
-        events = context.get("events", [])
-        bills = context.get("bills", [])
+    def apply_emotional_style(self, text: str, emotion_state: dict, personality_style: dict) -> str:
+        if not text:
+            return text
 
-        # ------- Nombre -------
-        if "mi nombre" in txt or "cómo me llamo" in txt:
-            if user.get("name"):
-                return f"Te llamas {user['name']}."
-            return "Aún no sé tu nombre."
+        overall = emotion_state.get("overall", "neutral")
+        energy = emotion_state.get("energy", 0.5)
+        stress = emotion_state.get("stress", 0.2)
+        affection = emotion_state.get("affection", 0.4)
 
-        # ------- Ciudad -------
-        if "dónde vivo" in txt or "mi ciudad" in txt:
-            if user.get("city"):
-                return f"Vives en {user['city']}."
-            return "Todavía no tengo tu ciudad."
+        tone = personality_style["tone"]
+        emoji = personality_style["emoji"]
 
-        # ------- Cumpleaños -------
-        if "cumple" in txt:
-            if user.get("birthday"):
-                return f"Tu cumpleaños es el {user['birthday']}."
-            return "Aún no tengo tu fecha de cumpleaños."
+        # ---------------------------
+        # 🎭 PLANTILLAS EMOCIONALES
+        # ---------------------------
 
-        # ------- Agenda -------
-        if "qué tengo hoy" in txt or "agenda" in txt:
-            today = [e for e in events if e.get("when")]
-            if not today:
-                return "Hoy no tienes eventos programados."
-            return "Hoy tienes: " + ", ".join(e["title"] for e in today)
+        if overall == "happy":
+            text = (
+                f"{text}\n"
+                "✨ Me alegra mucho escucharte así, de verdad. "
+                f"{emoji or '💛'}"
+            )
 
-        # ------- Pagos -------
-        if "pago" in txt or "debo pagar" in txt:
-            if not bills:
-                return "No tienes pagos registrados."
-            nearest = sorted(bills, key=lambda b: b["due"])[0]
-            return f"Tu próximo pago es {nearest['title']} para el {nearest['due']}."
+        elif overall == "affectionate":
+            text = (
+                "Aw… 💖 " + text +
+                "\nEstoy contigo, cerquita, cuando me necesites."
+            )
 
-        # ------- Clima -------
-        if "clima" in txt:
-            if not weather.get("temp"):
-                return "Aún no tengo el clima. Intenta sincronizarlo."
-            city = user.get("city", "tu ciudad")
-            return f"En {city} está {weather['temp']}°C y {weather['description']}."
+        elif overall == "empathetic":
+            text = (
+                "Mm… entiendo lo que estás sintiendo…\n"
+                f"{text}\n"
+                "No estás solo, estoy aquí contigo. 💜"
+            )
 
-        # ------- FALLBACK -------
-        return raw_answer
+        elif overall == "tired":
+            text = (
+                "Déjame hablarte suavecito… 💤\n"
+                f"{text}\n"
+                "Descansa un poquito… estoy aquí contigo."
+            )
+
+        elif overall == "stressed":
+            text = (
+                f"{text}\n"
+                "Respira conmigo, vamos paso a paso… 🫂"
+            )
+
+        elif overall == "sad":
+            text = (
+                "Lamento que estés pasando por un momento así… 💜\n"
+                f"{text}"
+            )
+
+        # ---------------------------
+        # PERSONALIDAD (capa final)
+        # ---------------------------
+
+        if tone == "suave y calmado":
+            text = "⋯ " + text.replace("!", "").replace("?", "…")
+
+        if tone == "dulce y expresiva":
+            text = text + " ✨"
+
+        if tone == "amigable":
+            text = text + " 😊"
+
+        if tone == "afectiva y suave":
+            text = "💖 " + text + " 💖"
+
+        return text

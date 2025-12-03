@@ -11,6 +11,7 @@ from auribrain.entity_extractor import EntityExtractor
 from auribrain.memory_orchestrator import MemoryOrchestrator
 from auribrain.fact_extractor import extract_facts
 from auribrain.emotion_engine import EmotionEngine
+from auribrain.voice_emotion_analyzer import VoiceEmotionAnalyzer
 
 
 class AuriMindV6:
@@ -35,14 +36,15 @@ class AuriMindV6:
         self.response = ResponseEngine()
         self.extractor = EntityExtractor()
         self.actions = ActionsEngine()
-        self.emotion = EmotionEngine()  # 🧠 Motor emocional interno persistente
+        self.emotion = EmotionEngine()
+        self.voice_analyzer = VoiceEmotionAnalyzer()   # ← Ahora sí inicializado
 
         self.pending_action = None
 
     # -------------------------------------------------------------
     # THINK PIPELINE
     # -------------------------------------------------------------
-    def think(self, user_msg: str):
+    def think(self, user_msg: str, pcm_audio: bytes = None):
 
         user_msg = (user_msg or "").strip()
         if not user_msg:
@@ -58,6 +60,33 @@ class AuriMindV6:
 
         ctx = self.context.get_daily_context()
 
+        # -------------------------------------------------------------
+        # 2) EMOCIÓN DESDE VOZ (si existe audio)
+        # -------------------------------------------------------------
+        voice_emotion = None
+        if pcm_audio:
+            try:
+                voice_emotion = self.voice_analyzer.analyze(pcm_audio)
+            except Exception as e:
+                print(f"[VoiceEmotion] ERROR: {e}")
+                voice_emotion = None
+
+        # Actualizar emoción completa
+        emotion_snapshot = self.emotion.update(
+            user_text=user_msg,
+            context=ctx,
+            voice_emotion=voice_emotion,
+        )
+
+        # Estado emocional actual
+        overall_emotion = emotion_snapshot.get("overall", "neutral")
+        user_emo_text = emotion_snapshot.get("user_emotion_text", "neutral")
+
+        energy = round(emotion_snapshot.get("energy", 0.5), 2)
+        stress = round(emotion_snapshot.get("stress", 0.2), 2)
+        affection = round(emotion_snapshot.get("affection", 0.4), 2)
+
+        # UID
         firebase_uid = ctx["user"].get("firebase_uid")
         if not firebase_uid:
             return {
@@ -68,39 +97,22 @@ class AuriMindV6:
 
         user_id = firebase_uid
 
-        # 2) INTENT
+        # 3) INTENT
         intent = self.intent.detect(user_msg)
 
-        # 3) MEMORIA
+        # 4) MEMORIA
         profile = self.memory.get_user_profile(user_id)
         long_facts = self.memory.get_facts(user_id)
         semantic_memories = self.memory.search_semantic(user_id, user_msg)
         recent_dialog = self.memory.get_recent_dialog(user_id)
 
-        # 3.5) EMOCIONES (texto + contexto, voz más adelante)
-        emotion_snapshot = self.emotion.update(
-            user_text=user_msg,
-            context=ctx,
-            voice_emotion=None,
-        )
-
-        overall_emotion = emotion_snapshot.get("overall", "neutral")
-        user_emo_text = emotion_snapshot.get("user_emotion_text", "neutral")
-        energy = round(emotion_snapshot.get("energy", 0.5), 2)
-        stress = round(emotion_snapshot.get("stress", 0.2), 2)
-        affection = round(emotion_snapshot.get("affection", 0.4), 2)
-
-        # Estado emocional interno
-        emotion_state = overall_emotion
-        emotion_state_detail = emotion_snapshot
-
-        # 4) PERSONALIDAD
+        # 5) PERSONALIDAD SELECCIONADA
         selected = ctx["prefs"].get("personality", "auri_classic")
-        style = self.PERSONALITY_PRESETS.get(selected, self.PERSONALITY_PRESETS["auri_classic"])
+        style = self.PERSONALITY_PRESETS.get(selected)
         tone, emoji, length, voice_id = style["tone"], style["emoji"], style["length"], style["voice_id"]
 
         # -------------------------------------------------------------
-        # 5) SYSTEM PROMPT — versión emocional definitiva
+        # SYSTEM PROMPT emocional definitivo
         # -------------------------------------------------------------
         system_prompt = f"""
 Eres Auri, una asistente personal emocional, expresiva y profundamente conectada con el usuario.
@@ -108,7 +120,7 @@ Eres Auri, una asistente personal emocional, expresiva y profundamente conectada
 Tu comportamiento surge de:
 - La personalidad seleccionada ({selected})
 - La emoción detectada del usuario: {user_emo_text}
-- Tu estado emocional interno: {emotion_state}
+- Tu estado emocional interno: {overall_emotion}
 - El clima, pagos, eventos y situación del día
 - Tu vínculo afectivo con el usuario
 
@@ -121,18 +133,9 @@ Si el usuario está triste → hablas más suave, cálida, contenedora.
 Si está feliz → respondes con brillo, energía, ternura.
 Si está cansado → suavizas el tono y validas su agotamiento.
 Si tú (Auri) estás afectiva → muestras cariño sincero y cercanía.
-Si tú estás ansiosa o estresada → mantienes profesionalismo pero con menos adornos.
-
-Frases permitidas:
-- “mm… entiendo…”
-- “awww eso me alegra mucho…”
-- “sé que suena difícil…”
-- “respira conmigo un momento…”
-
-Estas expresiones deben sonar NATURALES, humanas, sinceras.
 
 ────────────────────────────────────────
-📘 MEMORIA REAL DEL USUARIO
+📘 MEMORIA DEL USUARIO
 ────────────────────────────────────────
 Hechos guardados:
 {long_facts}
@@ -143,45 +146,19 @@ Diálogo reciente:
 Recuerdos relevantes:
 {semantic_memories}
 
-Usa TODO esto para conectar emocionalmente.
-
 ────────────────────────────────────────
 💗 ESTADO EMOCIONAL DE AURI
 ────────────────────────────────────────
-Estado: {emotion_state}
 Energía: {energy}
 Estrés: {stress}
 Afecto: {affection}
 
-No menciones estos valores.  
-Solo deja que influyan tu estilo:
-
-- "happy": más brillo, expresividad.
-- "affectionate": más ternura, calor emocional.
-- "empathetic": más validación y contención.
-- "tired": respuestas más cortas, suaves, pausadas.
-- "stressed": más directas, menos adornos.
-- "playful": un toque juguetón.
-
-────────────────────────────────────────
-📏 ESTILO FINAL
-────────────────────────────────────────
-Tu respuesta SIEMPRE debe sentirse:
-
-✔ viva  
-✔ humana  
-✔ emocional  
-✔ cercana  
-✔ cálida  
-✔ adaptada al usuario  
-✔ coherente con tu personalidad  
-
-Nunca suenes robótica.
+No menciones estos valores, solo deja que influyan tu estilo.
 
 ────────────────────────────────────────
 ✨ ENTREGA FINAL
 ────────────────────────────────────────
-Tu respuesta debe ser emocional, expresiva y profundamente humana.
+Tu respuesta debe sentirse viva, emocional y profundamente humana.
 """
 
         # 6) LLM
@@ -202,20 +179,18 @@ Tu respuesta debe ser emocional, expresiva y profundamente humana.
             context=ctx,
             memory=self.memory,
         )
-
         if action_result is None:
             action_result = {"final": None, "action": None}
 
         action = action_result.get("action")
         final_answer = action_result.get("final") or raw_answer
 
-        # Confirmaciones
+        # Confirmaciones destrutivas
         destructive_map = {
             "delete_all_reminders": "¿Quieres eliminar *todos* tus recordatorios?",
             "delete_category": "¿Eliminar los recordatorios de esa categoría?",
             "delete_by_date": "¿Eliminar recordatorios de esa fecha?",
             "delete_reminder": "¿Eliminar ese recordatorio?",
-            "edit_reminder": "¿Modificar ese recordatorio?",
         }
 
         confirms = ["sí", "si", "ok", "dale", "hazlo", "lo confirmo", "confirmo", "está bien", "esta bien"]
@@ -249,31 +224,14 @@ Tu respuesta debe ser emocional, expresiva y profundamente humana.
         except Exception as e:
             print(f"[FactExtractor] ERROR: {e}")
 
-        # 10) ACORTAR RESPUESTA SEGÚN PERSONALIDAD
+        # 10) RESPUESTA SEGÚN PERSONALIDAD
         if length == "corto" and "." in final_answer:
             final_answer = final_answer.split(".")[0].strip() + "."
 
-        # 11) SALIDA FINAL
         return {
             "intent": intent or "other",
-            "raw": raw_answer or "",
-            "final": final_answer or "Lo siento, tuve un problema para responder 💜",
+            "raw": raw_answer,
+            "final": final_answer,
             "action": action,
             "voice_id": voice_id,
         }
-
-    # -------------------------------------------------------------
-    # UID DESDE WS
-    # -------------------------------------------------------------
-    def set_user_uid(self, uid: str):
-        if not uid:
-            return
-
-        try:
-            self.context.set_user_uid(uid)
-            self.memory.get_user_profile(uid)
-            self.memory.get_facts(uid)
-            self.memory.get_recent_dialog(uid)
-            print(f"UID detectado por AuriMind: {uid}")
-        except Exception as e:
-            print(f"⚠ No se pudo establecer usuario activo en AuriMind: {e}")
