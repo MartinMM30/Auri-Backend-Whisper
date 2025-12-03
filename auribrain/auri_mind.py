@@ -3,6 +3,7 @@
 # ============================================================
 
 from openai import OpenAI
+import re
 
 # Motores base
 from auribrain.intent_engine import IntentEngine
@@ -664,7 +665,33 @@ Eres Auri, asistente personal emocional y compañero diario del usuario.
                 self.memory.add_fact_structured(uid, fact)
         except Exception:
             pass
+        # ===========================================================
+        # PATCH V8.2 — Autoaprendizaje de hechos familiares simples
+        # ===========================================================
 
+
+
+        # Detecta frases como: "mi hermano kairo", "mi hermano se llama kairo"
+        m = re.search(r"mi hermano(?:\s+se llama)?\s+([a-záéíóúñ]+)", txt)
+        if m:
+            name = m.group(1).strip().capitalize()
+            self.memory.add_fact_structured(uid, {
+                "type": "family_member",
+                "relationship": "hermano",
+                "name": name
+            })
+
+        # Detecta edad relativa: "tiene X años menos que yo"
+        m2 = re.search(r"mi hermano.*?(\d+)\s+años\s+menos\s+que\s+yo", txt)
+        if m2:
+            diff = int(m2.group(1))
+            self.memory.add_fact_structured(uid, {
+                "type": "family_member_age",
+                "relationship": "hermano",
+                "age_difference": -diff
+            })
+
+        # ----------------------------------------------------------
         # Personalidad corta → respuesta breve
         if length == "corto" and "." in final:
             final = final.split(".")[0].strip() + "."
