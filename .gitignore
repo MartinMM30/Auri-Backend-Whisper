@@ -10,3 +10,8 @@ clean_repo/
 # Ignorar cachés de Python
 __pycache__/
 *.pyc
+
+
+# Ignorar archivos de logs
+
+auri_v7_test_runner.py

@@ -14,7 +14,7 @@ from auribrain.fact_extractor import extract_facts
 from auribrain.emotion_engine import EmotionEngine
 from auribrain.voice_emotion_analyzer import VoiceEmotionAnalyzer
 
-# Modos especiales (archivos separados)
+# Modos especiales
 from auribrain.crisis_engine import CrisisEngine
 from auribrain.focus_engine import FocusEngine
 from auribrain.sleep_engine import SleepEngine
@@ -92,17 +92,20 @@ class AuriMindV7:
         self.emotion = EmotionEngine()
         self.voice_analyzer = VoiceEmotionAnalyzer()
 
-        # Módulos especiales
+        # Modos especiales
         self.crisis = CrisisEngine()
         self.sleep = SleepEngine()
         self.love = LoveModeEngine()
         self.energy_mode = EnergyEngine()
         self.slang = SlangModeEngine()
-        self.focus = FocusEngine()  # usado como modo también
+        self.focus = FocusEngine()
         self.journal = JournalEngine()
         self.mental = MentalHealthEngine()
         self.routines = RoutineEngine()
         self.weather_advice = WeatherAdviceEngine()
+
+        # Perfil lingüístico adaptativo para humor / slang
+        self.slang_profile = {}
 
         self.pending_action = None
 
@@ -128,9 +131,10 @@ class AuriMindV7:
             }
 
         ctx = self.context.get_daily_context()
+        txt = user_msg.lower()
 
         # -------------------------------------------------------------
-        # 2) EMOCIÓN DESDE VOZ (si existe audio)
+        # 2) EMOCIÓN DESDE VOZ
         # -------------------------------------------------------------
         voice_emotion = None
         if pcm_audio:
@@ -139,121 +143,110 @@ class AuriMindV7:
             except Exception as e:
                 print(f"[VoiceEmotion] ERROR: {e}")
 
-        # 3) EMOCIÓN COMPLETA (texto + contexto + voz)
+        # -------------------------------------------------------------
+        # 3) EMOCIÓN TOTAL
+        # -------------------------------------------------------------
         emotion_snapshot = self.emotion.update(
             user_text=user_msg,
             context=ctx,
             voice_emotion=voice_emotion,
         )
 
-        overall_emotion = emotion_snapshot.get("overall", "neutral")
+        overall = emotion_snapshot.get("overall", "neutral")
         user_emo_text = emotion_snapshot.get("user_emotion_text", "neutral")
         energy = float(emotion_snapshot.get("energy", 0.5))
         stress = float(emotion_snapshot.get("stress", 0.2))
         affection = float(emotion_snapshot.get("affection", 0.4))
 
+        # -------------------------------------------------------------
         # 4) UID
-        user_info = ctx.get("user") or {}
-        firebase_uid = user_info.get("firebase_uid")
+        # -------------------------------------------------------------
+        user_info = ctx.get("user", {}) or {}
+        uid = user_info.get("firebase_uid")
 
-        if not firebase_uid:
+        if not uid:
             return {
                 "final": "Por favor iniciá sesión para activar tu memoria personal 💜",
                 "intent": "auth_required",
                 "voice_id": "alloy",
             }
 
-        user_id = firebase_uid
-        txt = user_msg.lower()
-
         # =============================================================
         # 🔥 PRIORIDAD MÁXIMA: CRISIS
         # =============================================================
         if self.crisis.detect(user_msg, emotion_snapshot):
-            final = self.crisis.respond(user_info.get("name"))
-            self.memory.add_semantic(user_id, f"[crisis_detected] {user_msg}")
-            return {
-                "final": final,
-                "raw": final,
-                "intent": "conversation.general",
-                "action": None,
-                "voice_id": "alloy",
-            }
+            msg = self.crisis.respond(user_info.get("name"))
+            self.memory.add_semantic(uid, f"[crisis_detected] {user_msg}")
+            return {"final": msg, "raw": msg, "intent": "crisis", "voice_id": "alloy"}
 
         # =============================================================
-        # 🔥 MODOS ESPECIALES — antes del LLM
+        # 🔥 MODOS ANTES DEL LLM
         # =============================================================
 
         # Modo Sueño
-        if self.sleep.detect(txt, overall_emotion, ctx):
-            final = self.sleep.respond(ctx, overall_emotion)
-            return {"final": final, "raw": final, "intent": "conversation.general", "action": None, "voice_id": "alloy"}
+        if self.sleep.detect(txt, overall, ctx):
+            msg = self.sleep.respond(ctx, overall)
+            return {"final": msg, "raw": msg, "intent": "sleep", "voice_id": "alloy"}
 
-        # Modo Pareja
+        # Modo Pareja / Amor
         if self.love.detect(txt, affection):
-            final = self.love.respond(ctx)
-            self.memory.add_semantic(user_id, "[love_mode_triggered]")
-            return {
-                "final": final,
-                "raw": final,
-                "intent": "conversation.general",
-                "action": None,
-                "voice_id": "myGF_voice",
-            }
+            msg = self.love.respond(ctx)
+            self.memory.add_semantic(uid, "[love_mode_triggered]")
+            return {"final": msg, "raw": msg, "intent": "love", "voice_id": "myGF_voice"}
 
-        # Modo Slang / Humor Negro
-        slang = self.slang.detect(txt, stress)
-        if slang:
-            final = self.slang.respond(slang)
-            return {"final": final, "raw": final, "intent": "conversation.general", "action": None, "voice_id": "alloy"}
+        # Modo Humor / Slang / Regional adaptativo
+        slang_mode = self.slang.detect(txt, self.slang_profile)
+        if slang_mode:
+            msg = self.slang.respond(slang_mode, self.slang_profile)
+            return {"final": msg, "raw": msg, "intent": "slang", "voice_id": "alloy"}
 
         # Modo Focus
         if self.focus.detect(txt):
-            final = self.focus.respond(ctx)
-            return {"final": final, "raw": final, "intent": "focus", "action": None, "voice_id": "alloy"}
+            msg = self.focus.respond(ctx)
+            return {"final": msg, "raw": msg, "intent": "focus", "voice_id": "alloy"}
 
         # Modo Energía
         energy_mode = self.energy_mode.detect(txt, energy)
         if energy_mode:
-            final = self.energy_mode.respond(energy_mode, ctx)
-            return {"final": final, "raw": final, "intent": "energy", "action": None, "voice_id": "alloy"}
+            msg = self.energy_mode.respond(energy_mode, ctx)
+            return {"final": msg, "raw": msg, "intent": "energy", "voice_id": "alloy"}
 
-        # Modo Salud Mental
+        # Salud Mental leve
         if self.mental.detect(txt, stress):
-            final = self.mental.respond()
-            return {"final": final, "raw": final, "intent": "mental_health", "action": None, "voice_id": "alloy"}
+            msg = self.mental.respond()
+            return {"final": msg, "raw": msg, "intent": "mental_health", "voice_id": "alloy"}
 
-        # Modo Rutinas
+        # Rutinas Inteligentes
         if any(k in txt for k in ["rutina", "organizar", "ordenar", "mi día", "mi dia"]):
-            mode = self.routines.detect(ctx, emotion_snapshot)
-            if mode:
-                final = self.routines.respond(mode)
-                return {"final": final, "raw": final, "intent": "routine", "action": None, "voice_id": "alloy"}
+            rmode = self.routines.detect(ctx, emotion_snapshot)
+            if rmode:
+                msg = self.routines.respond(rmode)
+                return {"final": msg, "raw": msg, "intent": "routine", "voice_id": "alloy"}
 
-        # Modo clima / outfit
+        # Consejos por clima
         if any(k in txt for k in ["clima", "tiempo", "ropa", "outfit", "frio", "calor", "lluvia"]):
             wmode = self.weather_advice.detect(ctx)
             if wmode:
-                final = self.weather_advice.respond(wmode)
-                return {"final": final, "raw": final, "intent": "weather", "action": None, "voice_id": "alloy"}
+                msg = self.weather_advice.respond(wmode)
+                return {"final": msg, "raw": msg, "intent": "weather", "voice_id": "alloy"}
 
         # Journal automático
         if self.journal.detect(user_msg, emotion_snapshot):
             entry = self.journal.generate_entry(user_msg, emotion_snapshot)
-            self.memory.add_semantic(user_id, entry)
+            self.memory.add_semantic(uid, entry)
 
         # =============================================================
-        # 🔵 INTENT NORMAL
+        # 5) INTENT NORMAL
         # =============================================================
         intent = self.intent.detect(user_msg)
 
-        # MEMORIA
-        profile = self.memory.get_user_profile(user_id)
-        long_facts = self.memory.get_facts(user_id)
-        semantic = self.memory.search_semantic(user_id, user_msg)
-        recent = self.memory.get_recent_dialog(user_id)
+        # MEMORIA REAL
+        profile = self.memory.get_user_profile(uid)
+        long_facts = self.memory.get_facts(uid)
+        semantic = self.memory.search_semantic(uid, user_msg)
+        recent = self.memory.get_recent_dialog(uid)
 
-        # PERSONALIDAD
+        # PERSONALIDAD ACTUAL
         prefs = ctx.get("prefs", {}) or {}
         selected = prefs.get("personality", "auri_classic")
         style = self.PERSONALITY_PRESETS.get(selected, self.PERSONALITY_PRESETS["auri_classic"])
@@ -263,33 +256,32 @@ class AuriMindV7:
         length = style["length"]
         voice_id = style["voice_id"]
 
-        # =============================================================
+        # -------------------------------------------------------------
         # SYSTEM PROMPT
-        # =============================================================
-
+        # -------------------------------------------------------------
         system_prompt = f"""
 Eres Auri, una asistente emocional, expresiva y profundamente conectada con el usuario.
 
-Personalidad actual: {selected} ({tone} {emoji})
+Personalidad: {selected} ({tone} {emoji})
 Emoción del usuario (texto): {user_emo_text}
 Emoción del usuario (voz): {voice_emotion}
-Estado emocional interno: {overall_emotion}
+Estado interno de Auri: {overall}
 
-Recuerdos reales:
+Memoria del usuario:
 {long_facts}
 
 Diálogo reciente:
 {recent}
 
-Memoria semántica relevante:
+Memoria relevante:
 {semantic}
 
-Responde como un ser cálido, vivo, humano y emocional.
+Responde como un ser cálido, humano y emocional.
 """
 
-        # =============================================================
+        # -------------------------------------------------------------
         # LLM
-        # =============================================================
+        # -------------------------------------------------------------
         resp = self.client.responses.create(
             model="gpt-4o-mini",
             input=[
@@ -297,23 +289,25 @@ Responde como un ser cálido, vivo, humano y emocional.
                 {"role": "user", "content": user_msg},
             ],
         )
+
         raw_answer = (resp.output_text or "").strip()
 
-        # ACCIONES
+        # -------------------------------------------------------------
+        # ACCIONES (recordatorios, etc.)
+        # -------------------------------------------------------------
         action_result = self.actions.handle(
             intent=intent,
             user_msg=user_msg,
             context=ctx,
             memory=self.memory,
-        )
-
-        if action_result is None:
-            action_result = {"final": None, "action": None}
+        ) or {"final": None, "action": None}
 
         final = action_result.get("final") or raw_answer
         action = action_result.get("action")
 
+        # -------------------------------------------------------------
         # CONFIRMACIONES DESTRUCTIVAS
+        # -------------------------------------------------------------
         destructive_map = {
             "delete_all_reminders": "¿Querés eliminar *todos* tus recordatorios?",
             "delete_category": "¿Eliminar los recordatorios de esa categoría?",
@@ -327,32 +321,27 @@ Responde como un ser cálido, vivo, humano y emocional.
             act = self.pending_action
             act["payload"]["confirmed"] = True
             self.pending_action = None
-
-            return {
-                "final": "Perfecto, lo hago ahora 💜",
-                "action": act,
-                "voice_id": voice_id,
-            }
+            return {"final": "Perfecto, lo hago ahora 💜", "action": act, "voice_id": voice_id}
 
         if action and action.get("type") in destructive_map:
             self.pending_action = action
             return {"final": destructive_map[action["type"]], "action": None, "voice_id": voice_id}
 
-        # GUARDAR MEMORIA
-        self.memory.add_dialog(user_id, "user", user_msg)
-        self.memory.add_dialog(user_id, "assistant", final)
-        self.memory.add_semantic(user_id, f"user: {user_msg}")
-        self.memory.add_semantic(user_id, f"assistant: {final}")
+        # -------------------------------------------------------------
+        # GUARDAR MEMORIA REAL
+        # -------------------------------------------------------------
+        self.memory.add_dialog(uid, "user", user_msg)
+        self.memory.add_dialog(uid, "assistant", final)
+        self.memory.add_semantic(uid, f"user: {user_msg}")
+        self.memory.add_semantic(uid, f"assistant: {final}")
 
-        # HECHOS
         try:
-            facts = extract_facts(user_msg)
-            for f in facts:
-                self.memory.add_fact_structured(user_id, f)
+            for fact in extract_facts(user_msg):
+                self.memory.add_fact_structured(uid, fact)
         except:
             pass
 
-        # RESPUESTA CORTA
+        # RESPUESTA CORTA SI PERSONALIDAD = corto
         if length == "corto" and "." in final:
             final = final.split(".")[0] + "."
 
@@ -380,5 +369,5 @@ Responde como un ser cálido, vivo, humano y emocional.
             print(f"[AuriMind] ERROR al establecer UID: {e}")
 
 
-# Compatibilidad con código anterior
+# Compatibilidad con código antiguo
 AuriMindV6 = AuriMindV7
