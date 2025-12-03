@@ -20,3 +20,7 @@ starlette
 
 # --- Audio / TTS streaming ---
 requests
+
+
+# ---emotions---
+numpy==1.26.4
