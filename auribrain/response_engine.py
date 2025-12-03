@@ -1,83 +1,71 @@
 # auribrain/response_engine.py
 
+from auribrain.smart_org_engine import SmartOrganizationEngine
+from auribrain.crisis_engine import CrisisEngine
+from auribrain.focus_engine import FocusEngine
+
+
 class ResponseEngine:
-    """
-    ResponseEngine V4 — Emotional Post-Processor
 
-    Toma la respuesta del LLM y la adapta emocionalmente usando:
-    - emotion_state["overall"]
-    - personality_style
-    """
+    def __init__(self):
+        self.org = SmartOrganizationEngine()
+        self.crisis = CrisisEngine()
+        self.focus = FocusEngine()
 
-    def apply_emotional_style(self, text: str, emotion_state: dict, personality_style: dict) -> str:
-        if not text:
-            return text
+    def build(
+        self,
+        intent,
+        style,
+        context,
+        memory,
+        user_msg,
+        raw_answer,
+        emotion_state,
+        emotion_snapshot
+    ):
+        txt = user_msg.lower()
 
-        overall = emotion_state.get("overall", "neutral")
-        energy = emotion_state.get("energy", 0.5)
-        stress = emotion_state.get("stress", 0.2)
-        affection = emotion_state.get("affection", 0.4)
+        # ============================================================
+        # 1) CRISIS EMOCIONAL (máxima prioridad)
+        # ============================================================
+        if self.crisis.detect(txt):
+            return self.crisis.respond(context)
 
-        tone = personality_style["tone"]
-        emoji = personality_style["emoji"]
+        # ============================================================
+        # 2) MODO FOCUS (enfoque)
+        # ============================================================
+        if self.focus.detect(txt) or emotion_state in ["stressed", "overwhelmed"]:
+            return self.focus.respond(context)
 
-        # ---------------------------
-        # 🎭 PLANTILLAS EMOCIONALES
-        # ---------------------------
+        # ============================================================
+        # 3) MICRO–RESPUESTAS POR EMOCIÓN
+        # ============================================================
+        if emotion_state in [
+            "worried", "stressed", "sad", "angry",
+            "tired", "happy", "affectionate"
+        ]:
+            emotional_help = self.org.analyze(emotion_state, context)
+            return emotional_help + "\n\n" + raw_answer
 
-        if overall == "happy":
-            text = (
-                f"{text}\n"
-                "✨ Me alegra mucho escucharte así, de verdad. "
-                f"{emoji or '💛'}"
-            )
+        # ============================================================
+        # 4) RESPUESTAS CORTAS / QA simples
+        # ============================================================
+        user = context.get("user", {})
+        weather = context.get("weather", {})
 
-        elif overall == "affectionate":
-            text = (
-                "Aw… 💖 " + text +
-                "\nEstoy contigo, cerquita, cuando me necesites."
-            )
+        if "mi nombre" in txt:
+            return f"Te llamas {user.get('name', 'amor')} 💜"
 
-        elif overall == "empathetic":
-            text = (
-                "Mm… entiendo lo que estás sintiendo…\n"
-                f"{text}\n"
-                "No estás solo, estoy aquí contigo. 💜"
-            )
+        if "mi ciudad" in txt or "donde vivo" in txt:
+            city = user.get("city")
+            return f"Vives en {city} 💜" if city else "No tengo tu ciudad guardada."
 
-        elif overall == "tired":
-            text = (
-                "Déjame hablarte suavecito… 💤\n"
-                f"{text}\n"
-                "Descansa un poquito… estoy aquí contigo."
-            )
+        if "clima" in txt:
+            if not weather.get("temp"):
+                return "No tengo el clima aún, intenta sincronizarlo 💜"
+            return f"En {user.get('city', 'tu ciudad')} hay {weather['temp']}°C y {weather['description']}."
 
-        elif overall == "stressed":
-            text = (
-                f"{text}\n"
-                "Respira conmigo, vamos paso a paso… 🫂"
-            )
-
-        elif overall == "sad":
-            text = (
-                "Lamento que estés pasando por un momento así… 💜\n"
-                f"{text}"
-            )
-
-        # ---------------------------
-        # PERSONALIDAD (capa final)
-        # ---------------------------
-
-        if tone == "suave y calmado":
-            text = "⋯ " + text.replace("!", "").replace("?", "…")
-
-        if tone == "dulce y expresiva":
-            text = text + " ✨"
-
-        if tone == "amigable":
-            text = text + " 😊"
-
-        if tone == "afectiva y suave":
-            text = "💖 " + text + " 💖"
-
-        return text
+        # ============================================================
+        # 5) FALLBACK — respuesta emocional generada por LLM
+        # ============================================================
+        return raw_answer
