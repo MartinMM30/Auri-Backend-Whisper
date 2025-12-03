@@ -120,7 +120,7 @@ class AuriMindV7:
 
         t = text.lower().strip()
 
-        # Si tiene signo de interrogación, casi seguro es pregunta
+        # Pregunta explícita
         if "?" in t:
             return True
 
@@ -133,9 +133,12 @@ class AuriMindV7:
             "quién", "quien",
             "cuál", "cual",
             "what", "how", "why", "who", "when",
+            "dime", "decime", "explícame",
+            "enséñame", "enseñame",
         ]
 
         return any(t.startswith(q) for q in QUESTION_STARTS)
+
 
     # ---------------------------------------------------------
     # THINK PIPELINE
@@ -164,7 +167,21 @@ class AuriMindV7:
         txt = user_msg.lower()
 
         # ¿Es una pregunta directa? → evitar modos automáticos
+        
         skip_special_modes = self._is_direct_question(user_msg)
+
+# Bloquear TODOS los modos si es una petición de traducción / aprendizaje
+        TRANSLATION_TRIGGERS = [
+            "cómo se dice", "como se dice",
+            "dime qué significa", "que significa",
+            "dime cómo decir", "como decir",
+            "traduce", "traducción", "translate",
+            "hola en", "cómo digo", "como digo",
+        ]
+
+        if any(t in txt for t in TRANSLATION_TRIGGERS):
+            skip_special_modes = True
+
 
         # ---------------------------------------------------------
         # 2) EMOCIÓN DESDE VOZ (si hay audio)
@@ -275,7 +292,8 @@ class AuriMindV7:
         # Modo Energía
         energy_mode = None
         if not skip_special_modes:
-            energy_mode = self.energy_mode.detect(txt, energy)
+            if not any(word in txt for word in ["dime", "hola en", "cómo se dice", "traduce"]):
+                energy_mode = self.energy_mode.detect(txt, energy)
 
         if energy_mode:
             msg = self.energy_mode.respond(energy_mode, ctx)
