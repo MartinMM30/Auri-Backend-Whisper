@@ -1,5 +1,5 @@
 # ============================================================
-# AURI MIND V7.5 — Motor emocional + modos inteligentes + precisión
+# AURI MIND V7.6 — Motor emocional + modos inteligentes + precisión
 # ============================================================
 
 from openai import OpenAI
@@ -28,16 +28,16 @@ from auribrain.mental_health_engine import MentalHealthEngine
 from auribrain.routine_engine import RoutineEngine
 from auribrain.weather_advice_engine import WeatherAdviceEngine
 
-# Nuevos módulos V7.5
+# Nuevos módulos V7.5 / V7.6
 from auribrain.emotion_smartlayer_v3 import EmotionSmartLayerV3
 from auribrain.precision_mode_v2 import PrecisionModeV2
 
 
 # ============================================================
-# AURI MIND 7.5
+# AURI MIND 7.6
 # ============================================================
 
-class AuriMindV7_5:
+class AuriMindV7_6:
 
     PERSONALITY_PRESETS = {
         "auri_classic": {
@@ -84,7 +84,6 @@ class AuriMindV7_5:
         },
     }
 
-
     # ----------------------------------------------------------
     # INIT
     # ----------------------------------------------------------
@@ -114,19 +113,18 @@ class AuriMindV7_5:
         self.routines = RoutineEngine()
         self.weather_advice = WeatherAdviceEngine()
 
-        # NUEVOS MODOS V7.5
+        # NUEVOS MODOS V7.5 / V7.6
         self.smartlayer = EmotionSmartLayerV3()
         self.precision = PrecisionModeV2()
 
         # Perfil de slang adaptativo
         self.slang_profile = {}
 
-        # Acciones pendientes
+        # Acciones pendientes (confirmaciones destructivas)
         self.pending_action = None
 
-
     # ----------------------------------------------------------
-    # Helper
+    # Helper: detectar si es pregunta directa
     # ----------------------------------------------------------
     def _is_direct_question(self, text: str) -> bool:
         if not text:
@@ -167,29 +165,61 @@ class AuriMindV7_5:
 
         return False
 
-
-
     # ----------------------------------------------------------
     # THINK PIPELINE
     # ----------------------------------------------------------
     def think(self, user_msg: str, pcm_audio: bytes = None):
         user_msg = (user_msg or "").strip()
-        txt = user_msg.lower()
-
         if not user_msg:
-            return {"final": "No escuché nada, ¿podés repetirlo?", "intent": "unknown", "voice_id": "alloy", "action": None}
+            return {
+                "final": "No escuché nada, ¿podés repetirlo?",
+                "intent": "unknown",
+                "voice_id": "alloy",
+                "action": None,
+            }
 
         if not self.context.is_ready():
-            return {"final": "Dame un momento… estoy cargando tu perfil 💜", "intent": "wait", "voice_id": "alloy", "action": None}
+            return {
+                "final": "Dame un momento… estoy cargando tu perfil 💜",
+                "intent": "wait",
+                "voice_id": "alloy",
+                "action": None,
+            }
 
         ctx = self.context.get_daily_context()
+        txt = user_msg.lower()
 
         # ↓↓↓ CONTROL DE MODOS ESPECIALES
         skip_modes = self._is_direct_question(user_msg)
 
         # Traducción / definición → desactivar automáticos
-        TRANSLATION_TRIGGERS = ["cómo se dice", "como se dice", "que significa", "qué significa", "traduce", "traducción"]
+        TRANSLATION_TRIGGERS = [
+            "cómo se dice", "como se dice",
+            "que significa", "qué significa",
+            "traduce", "traducción", "translate",
+        ]
         if any(k in txt for k in TRANSLATION_TRIGGERS):
+            skip_modes = True
+
+        # ----------------------------------------------------------
+        # INFO QUERY BYPASS (bloquea modos automáticos)
+        # ----------------------------------------------------------
+        INFO_QUERY_KEYWORDS = [
+            "cómo se llama", "como se llama",
+            "cómo se llaman", "como se llaman",
+            "mis mascotas", "mis animales",
+            "mis perros", "mis gatos",
+            "mis padres", "mi mamá", "mi mama", "mi papá", "mi papa",
+            "nombre de mis", "nombres de mis",
+            "nombre de mi", "nombres de mi",
+            "dime el nombre de",
+            "quiero que me digas",
+            "quiero saber el nombre",
+            "cuál es el nombre", "cual es el nombre",
+        ]
+        is_info_query = any(k in txt for k in INFO_QUERY_KEYWORDS)
+        if is_info_query:
+            # Si es pregunta factual → NO disparar modos automáticos
             skip_modes = True
 
         # ------------------------------------------
@@ -203,97 +233,113 @@ class AuriMindV7_5:
                 pass
 
         # Emoción total
-        emotion_snapshot = self.emotion.update(user_text=user_msg, context=ctx, voice_emotion=voice_emotion)
+        emotion_snapshot = self.emotion.update(
+            user_text=user_msg,
+            context=ctx,
+            voice_emotion=voice_emotion,
+        )
 
         overall = emotion_snapshot.get("overall")
         stress = float(emotion_snapshot.get("stress", 0.2))
         energy = float(emotion_snapshot.get("energy", 0.5))
         affection = float(emotion_snapshot.get("affection", 0.4))
 
-
         # ------------------------------------------
         # UID requerido
         # ------------------------------------------
         uid = ctx.get("user", {}).get("firebase_uid")
         if not uid:
-            return {"final": "Por favor iniciá sesión para activar tu memoria personal 💜", "intent": "auth_required", "voice_id": "alloy", "action": None}
-
+            return {
+                "final": "Por favor iniciá sesión para activar tu memoria personal 💜",
+                "intent": "auth_required",
+                "voice_id": "alloy",
+                "action": None,
+            }
 
         # =======================================================
-        # 🔥 1) CRISIS MODE
+        # 🔥 1) CRISIS MODE (prioridad máxima)
         # =======================================================
         if self.crisis.detect(user_msg, emotion_snapshot):
             msg = self.crisis.respond(ctx.get("user", {}).get("name"))
             self.memory.add_semantic(uid, f"[crisis] {user_msg}")
-            return {"final": msg, "raw": msg, "intent": "crisis", "voice_id": "alloy", "action": None}
-
+            return {
+                "final": msg,
+                "raw": msg,
+                "intent": "crisis",
+                "voice_id": "alloy",
+                "action": None,
+            }
 
         # =======================================================
-        # 🔥 2) SUEÑO
+        # 🔥 2) SLEEP MODE
         # =======================================================
-        if not skip_modes and self.sleep.detect(txt, overall, ctx):
+        if not skip_modes and not is_info_query and self.sleep.detect(txt, overall, ctx):
             msg = self.sleep.respond(ctx, overall)
-            return {"final": msg, "raw": msg, "intent": "sleep", "voice_id": "alloy", "action": None}
-
+            return {
+                "final": msg,
+                "raw": msg,
+                "intent": "sleep",
+                "voice_id": "alloy",
+                "action": None,
+            }
 
         # =======================================================
         # 🔥 3) SLANG MODE V4
         # =======================================================
         slang_mode = None
-        if not skip_modes:
+        if not skip_modes and not is_info_query:
             slang_mode = self.slang.detect(txt, self.slang_profile)
 
         if slang_mode:
             resp = self.slang.respond(slang_mode, self.slang_profile)
-            return {"final": resp, "raw": resp, "intent": "slang", "voice_id": "alloy", "action": None}
-
+            return {
+                "final": resp,
+                "raw": resp,
+                "intent": "slang",
+                "voice_id": "alloy",
+                "action": None,
+            }
 
         # =======================================================
         # 🔥 4) EMOTION SMARTLAYER V3
         # =======================================================
         smart = self.smartlayer.apply(user_msg, emotion_snapshot, self.slang_profile)
 
+        # BYPASS de contención emocional para preguntas factuales
+        if is_info_query:
+            smart["force_serious"] = True
+            smart["allow_humor"] = False
+            smart["emotional_tone"] = "neutral"
+            smart["bypass_emotion"] = True
 
         # =======================================================
         # 🔥 5) PRECISION MODE V2
         # =======================================================
         precision_active = self.precision.detect(user_msg)
-
         if precision_active:
-            precision_info = self.precision.apply(self.slang_profile)
+            _ = self.precision.apply(self.slang_profile)
             smart["force_serious"] = True
             smart["allow_humor"] = False
             smart["precision_mode"] = True
         else:
             smart["precision_mode"] = False
 
-
         # =======================================================
         # 🔥 6) FOCUS MODE
         # =======================================================
-        if not skip_modes and self.focus.detect(txt):
+        if not skip_modes and not is_info_query and self.focus.detect(txt):
             msg = self.focus.respond(ctx)
-            return {"final": msg, "raw": msg, "intent": "focus", "voice_id": "alloy", "action": None}
+            return {
+                "final": msg,
+                "raw": msg,
+                "intent": "focus",
+                "voice_id": "alloy",
+                "action": None,
+            }
 
         # =======================================================
         # 🔥 7) ENERGY MODE
         # =======================================================
-        # No activar energía si el usuario está pidiendo información concreta
-        INFO_QUERY_KEYWORDS = [
-            "cómo se llaman", "como se llaman",
-            "cómo se llama", "como se llama",
-            "nombre de mis", "nombres de mis",
-            "nombre de mi", "nombres de mi",
-            "mis mascotas", "mis animales",
-            "mis padres", "mi mamá", "mi mama", "mi papá", "mi papa",
-            "dime el nombre de",
-            "quiero que me digas el nombre",
-            "quiero que me digas cómo se llama",
-            "quiero que me digas como se llama",
-        ]
-
-        is_info_query = any(k in txt for k in INFO_QUERY_KEYWORDS)
-
         energy_mode = ""
         if not skip_modes and not precision_active and not is_info_query:
             energy_mode = self.energy_mode.detect(txt, energy)
@@ -308,42 +354,63 @@ class AuriMindV7_5:
                 "action": None,
             }
 
-
         # =======================================================
         # 🔥 8) SALUD MENTAL
         # =======================================================
-        if not skip_modes and self.mental.detect(txt, stress):
+        if not skip_modes and not is_info_query and self.mental.detect(txt, stress):
             msg = self.mental.respond()
-            return {"final": msg, "raw": msg, "intent": "mental", "voice_id": "alloy", "action": None}
-
+            return {
+                "final": msg,
+                "raw": msg,
+                "intent": "mental",
+                "voice_id": "alloy",
+                "action": None,
+            }
 
         # =======================================================
         # 🔥 9) RUTINAS
         # =======================================================
-        if not skip_modes and any(k in txt for k in ["rutina", "organizar", "ordenar", "mi día", "mi dia"]):
+        if (
+            not skip_modes
+            and not is_info_query
+            and any(k in txt for k in ["rutina", "organizar", "ordenar", "mi día", "mi dia"])
+        ):
             rmode = self.routines.detect(ctx, emotion_snapshot)
             if rmode:
                 msg = self.routines.respond(rmode)
-                return {"final": msg, "raw": msg, "intent": "routine", "voice_id": "alloy", "action": None}
-
+                return {
+                    "final": msg,
+                    "raw": msg,
+                    "intent": "routine",
+                    "voice_id": "alloy",
+                    "action": None,
+                }
 
         # =======================================================
         # 🔥 10) CLIMA / OUTFIT
         # =======================================================
-        if not skip_modes and any(k in txt for k in ["clima", "tiempo", "ropa", "outfit", "frio", "calor", "lluvia"]):
+        if (
+            not skip_modes
+            and not is_info_query
+            and any(k in txt for k in ["clima", "tiempo", "ropa", "outfit", "frio", "calor", "lluvia"])
+        ):
             wmode = self.weather_advice.detect(ctx)
             if wmode:
                 msg = self.weather_advice.respond(wmode)
-                return {"final": msg, "raw": msg, "intent": "weather", "voice_id": "alloy", "action": None}
-
+                return {
+                    "final": msg,
+                    "raw": msg,
+                    "intent": "weather",
+                    "voice_id": "alloy",
+                    "action": None,
+                }
 
         # =======================================================
-        # JOURNAL
+        # JOURNAL (solo efecto de memoria, no cambia respuesta)
         # =======================================================
         if self.journal.detect(user_msg, emotion_snapshot):
             entry = self.journal.generate_entry(user_msg, emotion_snapshot)
             self.memory.add_semantic(uid, entry)
-
 
         # =======================================================
         # LLM PIPELINE
@@ -357,15 +424,18 @@ class AuriMindV7_5:
 
         prefs = ctx.get("prefs", {}) or {}
         selected = prefs.get("personality", "auri_classic")
-        style = self.PERSONALITY_PRESETS.get(selected, self.PERSONALITY_PRESETS["auri_classic"])
+        style = self.PERSONALITY_PRESETS.get(
+            selected,
+            self.PERSONALITY_PRESETS["auri_classic"],
+        )
 
         tone = style["tone"]
         emoji = style["emoji"]
         length = style["length"]
         voice_id = style["voice_id"]
 
-        # Override personality if precision mode
-        if smart["precision_mode"]:
+        # Override personalidad si está en modo precisión
+        if smart.get("precision_mode"):
             tone = "técnico, conciso, directo"
             emoji = ""
             length = "corto"
@@ -419,8 +489,12 @@ Reglas:
         # =======================================================
         # ACCIONES
         # =======================================================
-        action_result = self.actions.handle(intent=intent, user_msg=user_msg, context=ctx, memory=self.memory) \
-            or {"final": None, "action": None}
+        action_result = self.actions.handle(
+            intent=intent,
+            user_msg=user_msg,
+            context=ctx,
+            memory=self.memory,
+        ) or {"final": None, "action": None}
 
         final = action_result.get("final") or raw_answer
         action = action_result.get("action")
@@ -438,11 +512,23 @@ Reglas:
             act = self.pending_action
             act["payload"]["confirmed"] = True
             self.pending_action = None
-            return {"final": "Perfecto, lo hago ahora 💜", "raw": final, "intent": intent, "voice_id": voice_id, "action": act}
+            return {
+                "final": "Perfecto, lo hago ahora 💜",
+                "raw": final,
+                "intent": intent,
+                "voice_id": voice_id,
+                "action": act,
+            }
 
         if action and action.get("type") in destructive_map:
             self.pending_action = action
-            return {"final": destructive_map[action["type"]], "raw": destructive_map[action["type"]], "intent": intent, "voice_id": voice_id, "action": None}
+            return {
+                "final": destructive_map[action["type"]],
+                "raw": destructive_map[action["type"]],
+                "intent": intent,
+                "voice_id": voice_id,
+                "action": None,
+            }
 
         # Guardar memoria
         self.memory.add_dialog(uid, "user", user_msg)
@@ -458,10 +544,15 @@ Reglas:
 
         # Personalidad corta → respuesta breve
         if length == "corto" and "." in final:
-            final = final.split(".")[0] + "."
+            final = final.split(".")[0].strip() + "."
 
-        return {"intent": intent, "raw": raw_answer, "final": final, "action": action, "voice_id": voice_id}
-
+        return {
+            "intent": intent,
+            "raw": raw_answer,
+            "final": final,
+            "action": action,
+            "voice_id": voice_id,
+        }
 
     # ----------------------------------------------------------
     # UID DESDE WEBSOCKET
@@ -482,7 +573,7 @@ Reglas:
 # ----------------------------------------------------------
 # COMPATIBILIDAD LEGACY
 # ----------------------------------------------------------
-AuriMindV6 = AuriMindV7_5
-AuriMindV7 = AuriMindV7_5
-AuriMind = AuriMindV7_5
-
+AuriMindV6 = AuriMindV7_6
+AuriMindV7 = AuriMindV7_6
+AuriMindV7_5 = AuriMindV7_6
+AuriMind = AuriMindV7_6
