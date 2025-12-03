@@ -1,13 +1,15 @@
 # auribrain/sleep_engine.py
 
-from datetime import datetime, timedelta
-from typing import Dict, Any
+from typing import Dict
+from datetime import datetime
 
 
 class SleepEngine:
     """
-    Modo Sueño: guía suave para dormir, bajar ansiedad
-    y preparar rutinas nocturnas basadas en emoción + hora del día.
+    SleepEngine V2:
+    - Ya no interrumpe preguntas normales ("quién soy?")
+    - Se activa solo si el usuario habla explícitamente de dormir,
+      o si está muy cansado y es hora lógica de descanso.
     """
 
     TRIGGERS = [
@@ -17,86 +19,58 @@ class SleepEngine:
         "me cuesta dormir",
         "ayúdame a dormir",
         "ayudame a dormir",
-        "ruta de sueño",
-        "relajarme",
         "relajación",
         "relajacion",
-        "noche",
+        "relajarme",
         "hora de dormir",
+        "rutina nocturna",
     ]
 
-    # ------------------------------------------------------------------
-    # DETECT
-    # AuriMindV7 envía: detect(text, emotion_state, ctx)
-    # ------------------------------------------------------------------
-    def detect(self, text: str, emotion_state: str, ctx: Dict[str, Any]) -> bool:
-        t = (text or "").lower()
+    QUESTION_KEYWORDS = ["quien soy", "qué soy", "que soy", "como estoy"]
 
-        # 1) Por palabras clave
+    def _is_question(self, text: str) -> bool:
+        return any(k in text for k in self.QUESTION_KEYWORDS)
+
+    def detect(self, text: str, emotion_state: str, ctx: Dict) -> bool:
+        t = text.lower()
+
+        # Evitar activar si el usuario está haciendo preguntas normales
+        if self._is_question(t):
+            return False
+
+        # 1. Triggers explícitos → activar siempre
         if any(k in t for k in self.TRIGGERS):
             return True
 
-        # 2) Por emoción fuerte de cansancio
-        if emotion_state in ["tired", "exhausted", "low_energy"]:
-            return True
+        # 2. Activación por cansancio + hora + emoción
+        hour = None
+        try:
+            pretty = ctx.get("current_time_pretty", "00:00")
+            h = int(pretty.split(":")[0])
+            hour = h
+        except:
+            hour = None
 
-        # 3) Activación automática según hora del día
-        now_iso = ctx.get("current_time_iso")
-        if now_iso:
-            try:
-                now = datetime.fromisoformat(now_iso)
-                if now.hour >= 22 or now.hour <= 5:
-                    # Si además está emocionalmente cargado → activar sueño
-                    if emotion_state in ["stressed", "worried", "sad", "tired"]:
-                        return True
-            except:
-                pass
+        if emotion_state in ["tired", "exhausted"]:
+            # Activar solo si es de noche
+            if hour is not None and (hour >= 21 or hour <= 6):
+                return True
 
         return False
 
-    # ------------------------------------------------------------------
-    # RESPOND
-    # ------------------------------------------------------------------
-    def respond(self, context: Dict[str, Any], emotion_state: str) -> str:
+    def respond(self, context: Dict, emotion_state: str) -> str:
         user = context.get("user", {})
         name = user.get("name", "amor")
 
-        # Eventos para mañana
-        next_events = context.get("events", []) or []
-        tomorrow_events = []
-        try:
-            now = datetime.fromisoformat(context.get("current_time_iso"))
-            for e in next_events:
-                w = datetime.fromisoformat(e["when"])
-                if w.date() == (now.date() + timedelta(days=1)):
-                    tomorrow_events.append(e)
-        except:
-            pass
-
-        msg = (
-            f"{name}… ven, vamos a prepararte para descansar bien. 🌙💜\n\n"
-            "Cierra un momento los ojitos…\n"
-            "Inhala suave… 2… 3… y exhala muy despacio.\n\n"
-            "Vamos a hacer una pequeña rutina nocturna:\n\n"
+        return (
+            f"{name}… ven, vamos a ayudarte a descansar suavemente. 🌙💜\n\n"
+            "Cerrá un momento los ojitos… inhalá lento… 2… 3… y exhalá despacito.\n\n"
             "✨ **1. Relaja tu cuerpo**\n"
-            "Afloja hombros, mandíbula, manos… suelta todo.\n\n"
-            "✨ **2. Suelta el día**\n"
+            "Soltá hombros, mandíbula, manos… dejá caer el peso del día.\n\n"
+            "✨ **2. Liberá tu mente**\n"
             "No tenés que resolver nada ahora. El día ya terminó.\n\n"
-            "✨ **3. Respira lento**\n"
-            "Inhala 4 segundos… pausa 1… exhala 6.\n"
-            "Estoy aquí contigo, acompañándote en cada respiración. 💜\n\n"
+            "✨ **3. Respiración guiada**\n"
+            "Inhalá 4 segundos… pausa 1… exhalá 6.\n\n"
+            "Estoy acá con vos, acompañándote. Cuando quieras, puedo seguir hablándote suave… "
+            "o quedarme contigo en silencio hasta que te duermas. 💜"
         )
-
-        # Si mañana hay cosas importantes → se agregan
-        if tomorrow_events:
-            msg += "Mañana te espera esto importante:\n"
-            for e in tomorrow_events[:3]:
-                msg += f"• {e['title']} — {e['when'][11:16]}\n"
-            msg += "\nPuedo ayudarte a organizar tu mañana si querés. 💜\n"
-
-        msg += (
-            "\nCuando estés listo, puedo seguir hablándote suave… "
-            "o quedarme en silencio para ayudarte a dormir. 🌙💜"
-        )
-
-        return msg
