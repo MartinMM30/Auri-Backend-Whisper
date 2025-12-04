@@ -1,3 +1,3 @@
-from auribrain.auri_mind import AuriMindV6
+from auribrain.auri_mind import AuriMindV9
 
-auri = AuriMindV6()
+auri = AuriMindV9()
