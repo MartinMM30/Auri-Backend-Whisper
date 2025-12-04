@@ -2,8 +2,6 @@ import datetime
 from auribrain.memory_db import users, facts, dialog_recent
 from auribrain.embedding_service import EmbeddingService
 
-from auribrain.memory_db import memory_vectors
-
 
 class MemoryOrchestrator:
 
@@ -21,14 +19,12 @@ class MemoryOrchestrator:
             "ts": datetime.datetime.utcnow()
         })
 
-        # limpiar historial a máximo 40 mensajes
+        # mantener máximo 40
         cur = dialog_recent.find({"user_id": user_id}).sort("ts", -1)
         msgs = list(cur)
-
         if len(msgs) > 40:
-            to_delete = msgs[40:]  # todo lo que sobra
-            ids = [m["_id"] for m in to_delete]
-            dialog_recent.delete_many({"_id": {"$in": ids}})
+            to_delete = msgs[40:]
+            dialog_recent.delete_many({"_id": {"$in": [m["_id"] for m in to_delete]}})
 
     def get_recent_dialog(self, user_id, n=10):
         cur = dialog_recent.find({"user_id": user_id}).sort("ts", -1).limit(n * 2)
@@ -39,52 +35,145 @@ class MemoryOrchestrator:
         return "\n".join(lines)
 
     # ==================================================
-    # FACTOS DURADEROS
+    # FACTOS DURADEROS (estructura completa)
     # ==================================================
-    def add_fact(self, user_id, fact_text):
+    def add_fact_structured(self, user_id: str, fact: dict):
         """
-        Compatibilidad con funciones antiguas.
-        Guarda texto suelto como categoría "other".
+        Guarda un hecho estructurado con soporte para:
+        - text
+        - category
+        - importance
+        - confidence
+        - name
+        - role  (madre, padre, hermana, abuela…)
+        - kind  (perro, gato…)
+        - tags
+        - type  (family_member, pet, etc.)
         """
-        self.add_fact_structured(user_id, {
-            "text": fact_text,
-            "category": "other",
-            "importance": 2,
-            "confidence": 0.5
+
+        doc = {
+            "user_id": user_id,
+            "text": fact.get("text"),
+            "category": fact.get("category", "other"),
+            "importance": fact.get("importance", 3),
+            "confidence": fact.get("confidence", 0.8),
+            "name": fact.get("name"),
+            "role": fact.get("role"),
+            "kind": fact.get("kind"),
+            "tags": fact.get("tags"),
+            "type": fact.get("type"),
+            "created_at": datetime.datetime.utcnow(),
+            "updated_at": datetime.datetime.utcnow(),
+            "is_active": True,
+        }
+
+        # Duplicado si coincide clave compuesta de los campos estructurados
+        exists = facts.find_one({
+            "user_id": user_id,
+            "text": doc["text"],
+            "category": doc["category"],
+            "name": doc.get("name"),
+            "role": doc.get("role"),
+            "kind": doc.get("kind"),
+            "is_active": True
         })
 
+        if exists:
+            return  # evitar duplicados exactos
+
+        facts.insert_one(doc)
 
     def get_facts(self, user_id):
-        return [
-    {
-        "text": f.get("text"),
-        "category": f.get("category"),
-        "importance": f.get("importance"),
-        "confidence": f.get("confidence"),
-    }
-    for f in facts.find({"user_id": user_id, "is_active": True})
-]
+        """Devuelve TODOS los facts estructurados usados por AuriMind."""
+        result = []
+        for f in facts.find({"user_id": user_id, "is_active": True}):
+            result.append({
+                "text": f.get("text"),
+                "category": f.get("category"),
+                "importance": f.get("importance"),
+                "confidence": f.get("confidence"),
+                "name": f.get("name"),
+                "role": f.get("role"),
+                "kind": f.get("kind"),
+                "tags": f.get("tags"),
+                "type": f.get("type"),
+            })
+        return result
 
+    # ==================================================
+    # CONSULTAS ESPECIALIZADAS
+    # ==================================================
+    def get_family_facts(self, user_id):
+        """Retorna solos hechos con roles familiares."""
+        FAMILY_ROLES = {
+            "madre", "padre", "mamá", "mama", "papá", "papa",
+            "hermana", "hermano",
+            "abuela", "abuelo", "tía", "tia", "tio", "tío",
+            "pareja", "novia", "novio", "esposa", "esposo"
+        }
+
+        res = []
+        for f in facts.find({"user_id": user_id, "is_active": True}):
+            role = (f.get("role") or "").lower()
+            if role in FAMILY_ROLES:
+                res.append(f)
+        return res
+
+    def get_family_by_role(self, user_id, role: str):
+        """Ej: get_family_by_role(uid, 'abuela')"""
+        return [
+            f for f in facts.find({
+                "user_id": user_id,
+                "role": role.lower(),
+                "is_active": True
+            })
+        ]
+
+    def get_pets(self, user_id):
+        """Retorna todas las mascotas registradas estructuradamente."""
+        return [
+            f for f in facts.find({
+                "user_id": user_id,
+                "category": "pet",
+                "is_active": True
+            })
+        ]
+
+    def get_relationships(self, user_id):
+        """Familia + pareja + amigos importantes."""
+        return [
+            f for f in facts.find({
+                "user_id": user_id,
+                "category": "relationship",
+                "is_active": True
+            })
+        ]
+
+    def get_all_facts_pretty(self, user_id):
+        """Para depuración — devuelve texto limpio."""
+        pretty = []
+        for f in self.get_facts(user_id):
+            line = f"• {f.get('text')}"
+            if f.get("role"):
+                line += f" (rol: {f['role']})"
+            if f.get("name"):
+                line += f" → {f['name']}"
+            if f.get("kind"):
+                line += f" [{f['kind']}]"
+            pretty.append(line)
+        return "\n".join(pretty)
 
     # ==================================================
     # MEMORIA SEMÁNTICA (EMBEDDINGS)
     # ==================================================
     def add_semantic(self, user_id: str, text: str):
-        """Guarda recuerdos relevantes usando prioridad."""
-        text_low = text.lower()
-
         IMPORTANT = [
             "me gusta", "mi comida favorita", "odio", "mi novia", "mi pareja",
-            "mi mamá", "mi papá", "trabajo", "estoy estudiando",
-            "soy de", "vivo en", "quiero lograr", "mi sueño", "mis metas",
-            "mi color favorito", "mi cantante favorito"
+            "mi mamá", "mi papá", "trabajo", "estoy estudiando", "mi sueño",
+            "mi meta", "mi color favorito", "quiero lograr"
         ]
-
-        # Solo guardar si es importante
-        if any(k in text_low for k in IMPORTANT):
+        if any(k in text.lower() for k in IMPORTANT):
             self.embedder.add(user_id, text)
-
-
 
     def search_semantic(self, user_id: str, query: str):
         return self.embedder.search(user_id, query)
@@ -97,36 +186,3 @@ class MemoryOrchestrator:
 
     def update_user_profile(self, user_id: str, data: dict):
         users.update_one({"_id": user_id}, {"$set": data}, upsert=True)
-    def add_fact_structured(self, user_id: str, fact: dict):
-        """
-        Guarda un hecho estructurado:
-        - text
-        - category
-        - importance
-        - confidence
-        """
-
-        doc = {
-            "user_id": user_id,
-            "text": fact.get("text"),
-            "category": fact.get("category", "other"),
-            "importance": fact.get("importance", 3),
-            "confidence": fact.get("confidence", 0.8),
-            "created_at": datetime.datetime.utcnow(),
-            "updated_at": datetime.datetime.utcnow(),
-            "is_active": True,
-        }
-
-        # Evitar duplicados exactos
-        exists = facts.find_one({
-            "user_id": user_id,
-            "text": doc["text"],
-            "category": doc["category"],
-            "is_active": True
-        })
-
-        if exists:
-            return  # no guardar duplicados exactos
-
-        facts.insert_one(doc)
-

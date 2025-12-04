@@ -6,19 +6,29 @@ from openai import OpenAI
 
 def extract_facts(text: str):
     """
-    FactExtractor V6 – EXTENDIDO
+    FactExtractor V7 — MULTI-MIEMBRO + CAMPOS ESTRUCTURADOS
     Compatible con OpenAI Responses API (sin response_format).
     Devuelve SIEMPRE un JSON que se puede parsear.
 
-    Salida esperada (ejemplo):
+    Salida esperada (ejemplos):
 
     {
       "facts": [
         {
-          "text": "Mi novia se llama Ivana",
+          "text": "Su novia se llama Ivana",
           "category": "relationship",
           "importance": 5,
-          "confidence": 0.95
+          "confidence": 0.98,
+          "role": "pareja",
+          "name": "Ivana"
+        },
+        {
+          "text": "Tiene un perro llamado Bruno",
+          "category": "pet",
+          "importance": 4,
+          "confidence": 0.98,
+          "kind": "perro",
+          "name": "Bruno"
         }
       ]
     }
@@ -26,12 +36,12 @@ def extract_facts(text: str):
     Las categorías recomendadas son:
     - relationship  (familia, pareja, amigos importantes)
     - pet           (mascotas de todo tipo)
-    - preference    (gustos, colores favoritos, hobbies, música, comida, juegos, etc.)
+    - preference    (gustos, hobbies, música, comida, juegos, etc.)
     - work          (trabajo, profesión, proyectos importantes)
     - study         (carrera, universidad, cursos, exámenes)
-    - health        (salud física/mental, medicación, condiciones importantes)
-    - habit         (hábitos de sueño, ejercicio, estudio, café, etc.)
-    - financial     (preocupaciones económicas, deudas, pagos importantes)
+    - health        (salud física/mental importante)
+    - habit         (hábitos de sueño, ejercicio, estudio, etc.)
+    - financial     (preocupaciones económicas, pagos importantes)
     - mood          (estado emocional estable/recurrente)
     - other         (todo lo demás)
     """
@@ -56,90 +66,106 @@ Debes devolver SIEMPRE un objeto JSON con la forma:
       "text": "hecho en lenguaje natural",
       "category": "relationship | pet | preference | work | study | health | habit | financial | mood | other",
       "importance": 1,
-      "confidence": 1.0
+      "confidence": 1.0,
+
+      "name": "opcional, nombre propio si aplica",
+      "role": "opcional, rol familiar o social: madre, padre, hermano, hermana, abuela, abuelo, pareja, amigo, etc.",
+      "kind": "opcional, tipo de mascota: perro, gato, perrita, gato, tortuga, etc.",
+      "tags": ["opcional", "lista", "de", "etiquetas", "cortas"]
     }}
   ]
 }}
 
-REGLAS GENERALES:
+REGLAS GENERALES IMPORTANTES:
+
 - Un "hecho" es información sobre la vida del usuario que puede servir para ayudarle en el futuro.
-- No inventes nada que NO esté en el texto.
+- NO inventes nada que NO esté en el texto.
 - Si no hay nada útil, devuelve: "facts": [].
 - Usa frases claras y completas en "text", como si fueran notas que Auri guarda.
 - Usa importancia de 1 a 5 (1 = poco relevante, 5 = muy importante para futuras interacciones).
 - Usa confidence entre 0.0 y 1.0 según qué tan claro esté el hecho.
+- Si el texto menciona VARIAS personas o mascotas, devuelve UN HECHO POR CADA UNA.
+  Ejemplo:
+  "Mi abuela Arabella es muy tierna y mi abuelo Gerardo es muy sabio"
+  → Dos elementos en "facts":
+    - uno para Arabella,
+    - otro para Gerardo.
 
 CATEGORÍAS Y EJEMPLOS:
 
 1) relationship
    - Información sobre familia, pareja, amigos importantes, compañeros muy cercanos, etc.
-   - Ejemplos:
-     - "Mi mamá se llama Carolina"
-     - "Mi papá se llama Martín"
-     - "Mi novia se llama Ivana"
-     - "Mi mejor amigo se llama Luis"
-     - "Vivo con mi hermanita"
+   - Ejemplos de text:
+     - "Su mamá se llama Carolina"
+     - "Su papá se llama Martín"
+     - "Su novia se llama Ivana"
+     - "Su mejor amigo se llama Luis"
+     - "Vive con su hermanita"
+   - Usa también campos:
+     - "name": nombre propio (ej. "Carolina")
+     - "role": rol (ej. "madre", "padre", "hermana", "abuela", "abuelo", "hermano", "pareja")
 
 2) pet
    - Cualquier mascota: perros, gatos, aves, peces, tortugas, hamsters, conejos, reptiles, etc.
-   - Ejemplos:
-     - "Tengo un perro que se llama Bruno"
-     - "Mi gata se llama Luna"
-     - "Mi perrita Yuriko es de mi hermanita"
-     - "Tengo un pez llamado Nemo"
+   - Ejemplos de text:
+     - "Tiene un perro llamado Bruno"
+     - "Su gata se llama Luna"
+     - "Su perrita Yuriko es de su hermanita"
+   - Campos extra recomendados:
+     - "name": nombre de la mascota
+     - "kind": tipo de mascota (perro, perrita, gato, gata, pez, etc.)
 
 3) preference
    - Gustos, favoritos, aficiones, cosas que disfruta.
    - Colores, comida, música, juegos, anime, películas, artistas, deportes, etc.
    - Ejemplos:
-     - "Me gusta el café"
-     - "Mi color favorito es el azul"
-     - "Me encanta el anime"
-     - "Mi juego favorito es Zelda"
-     - "Me gusta escuchar k-pop"
+     - "Le gusta el café"
+     - "Su color favorito es el azul"
+     - "Le encanta el anime"
+     - "Su juego favorito es Zelda"
 
 4) work
    - Trabajo, profesión, proyectos laborales, freelance, emprendimientos.
    - Ejemplos:
-     - "Trabajo en programación"
-     - "Estoy haciendo una app llamada Auri"
-     - "Trabajo desde casa"
+     - "Trabaja en programación"
+     - "Está haciendo una app llamada Auri"
+     - "Trabaja desde casa"
 
 5) study
    - Estudios actuales, carrera, universidad, colegio, exámenes importantes.
    - Ejemplos:
-     - "Estudio Actuaría"
-     - "Tengo examen mañana"
-     - "Voy a la UCR"
+     - "Estudia Actuaría"
+     - "Tiene examen mañana"
+     - "Va a la UCR"
 
 6) health
    - Salud física o mental, condiciones relevantes, tratamientos importantes.
    - Ejemplos:
-     - "Estoy enfermo"
-     - "Estoy muy deprimido últimamente"
-     - "Tengo migrañas crónicas"
+     - "Está enfermo"
+     - "Está muy deprimido últimamente"
+     - "Tiene migrañas crónicas"
 
 7) habit
    - Hábitos y rutinas personales.
    - Ejemplos:
-     - "Duermo muy tarde"
-     - "Siempre estudio de noche"
-     - "Tomo café todas las mañanas"
-     - "Voy al gimnasio tres veces por semana"
+     - "Duerme muy tarde"
+     - "Siempre estudia de noche"
+     - "Toma café todas las mañanas"
+     - "Va al gimnasio tres veces por semana"
 
 8) financial
    - Preocupaciones económicas, gastos importantes, pagos, deudas.
    - Ejemplos:
-     - "Estoy preocupado por pagar la renta"
-     - "Tengo muchas deudas de la tarjeta"
-     - "Los pagos de servicios me estresan"
+     - "Está preocupado por pagar la renta"
+     - "Tiene muchas deudas de la tarjeta"
+     - "Los pagos de servicios le estresan"
 
 9) mood
    - Estados emocionales recurrentes o importantes, no solo algo momentáneo.
    - Ejemplos:
-     - "Últimamente me siento muy cansado"
-     - "En general he estado muy feliz"
-     - "He estado muy ansioso estos días"
+     - "Últimamente se siente muy cansado"
+     - "En general ha estado muy feliz"
+     - "Ha estado muy ansioso estos días"
 
 10) other
    - Cualquier otra cosa relevante que no encaje en las categorías anteriores.
@@ -150,6 +176,11 @@ IMPORTANCIA (importance sugerida):
 - 3 → hobbies, preferencias generales, información útil pero no crítica.
 - 2 → detalles menores que podrían ser útiles pero no centrales.
 - 1 → datos muy secundarios.
+
+MUY IMPORTANTE:
+- Si el texto menciona VARIOS familiares o mascotas en una sola frase,
+  debes producir UN OBJETO "fact" POR CADA UNO.
+  No mezcles a varias personas en el mismo fact.
 
 EJEMPLOS DE SALIDA:
 
@@ -163,46 +194,49 @@ Salida válida:
       "text": "Su novia se llama Ivana",
       "category": "relationship",
       "importance": 5,
-      "confidence": 0.98
+      "confidence": 0.98,
+      "role": "pareja",
+      "name": "Ivana"
     }},
     {{
       "text": "Tiene un perro llamado Bruno",
       "category": "pet",
       "importance": 4,
-      "confidence": 0.98
+      "confidence": 0.98,
+      "kind": "perro",
+      "name": "Bruno"
     }},
     {{
       "text": "Le gusta mucho el café",
       "category": "preference",
       "importance": 3,
-      "confidence": 0.95
+      "confidence": 0.95,
+      "tags": ["café"]
     }}
   ]
 }}
 
 Entrada:
-"Estoy muy cansado y estresado por los pagos, pero amo a mis mascotas."
+"Mi abuela Arabella es muy tierna y le gusta cocinar, y mi abuelo Gerardo es muy sabio."
 
 Salida válida:
 {{
   "facts": [
     {{
-      "text": "Se siente cansado y estresado por los pagos",
-      "category": "mood",
-      "importance": 4,
-      "confidence": 0.9
+      "text": "Su abuela Arabella es muy tierna y le gusta cocinar",
+      "category": "relationship",
+      "importance": 5,
+      "confidence": 0.97,
+      "role": "abuela",
+      "name": "Arabella"
     }},
     {{
-      "text": "Los pagos son una fuente de estrés para él",
-      "category": "financial",
-      "importance": 4,
-      "confidence": 0.9
-    }},
-    {{
-      "text": "Ama a sus mascotas",
-      "category": "pet",
-      "importance": 4,
-      "confidence": 0.9
+      "text": "Su abuelo Gerardo es muy sabio",
+      "category": "relationship",
+      "importance": 5,
+      "confidence": 0.96,
+      "role": "abuelo",
+      "name": "Gerardo"
     }}
   ]
 }}
@@ -235,16 +269,18 @@ TEXTO DEL USUARIO:
             print(raw)
             return []
 
-        facts = data.get("facts", [])
-        # asegurar estructura mínima
+        facts_list = data.get("facts", [])
         normalized = []
-        for f in facts:
+
+        for f in facts_list:
             if not isinstance(f, dict):
                 continue
+
             text_val = (f.get("text") or "").strip()
             if not text_val:
                 continue
 
+            # Campos obligatorios mínimos
             category = (f.get("category") or "other").strip() or "other"
             importance = f.get("importance", 3)
             confidence = f.get("confidence", 0.8)
@@ -262,12 +298,20 @@ TEXTO DEL USUARIO:
                 confidence = 0.8
             confidence = max(0.0, min(1.0, confidence))
 
-            normalized.append({
+            normalized_fact = {
                 "text": text_val,
                 "category": category,
                 "importance": importance,
                 "confidence": confidence,
-            })
+            }
+
+            # Copiar cualquier otro campo extra útil (role, name, kind, tags, etc.)
+            for k, v in f.items():
+                if k in ["text", "category", "importance", "confidence"]:
+                    continue
+                normalized_fact[k] = v
+
+            normalized.append(normalized_fact)
 
         return normalized
 
