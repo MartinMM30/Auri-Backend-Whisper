@@ -15,6 +15,7 @@ from auribrain.voice_emotion_analyzer import VoiceEmotionAnalyzer
 from auribrain.fact_extractor import extract_facts
 
 # Acciones
+from .auri_mind import AuriMindV9
 from auribrain.actions_engine import ActionsEngine
 
 # Modos inteligentes (plug-ins)
@@ -342,3 +343,6 @@ Personalidad:
 
 # Alias
 AuriMind = AuriMindV9
+AuriMindV6 = AuriMindV9
+AuriMindV7 = AuriMindV9
+AuriMindV8 = AuriMindV9
