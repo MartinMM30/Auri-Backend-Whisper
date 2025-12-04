@@ -2,37 +2,40 @@
 # AURI MIND V9 — Modular, Preciso, Extensible
 # ============================================================
 
+# auribrain/auri_mind.py
+
 from openai import OpenAI
 import re
 
-# Bases
-from auribrain.context_engine import ContextEngine
+# Motores base
 from auribrain.intent_engine import IntentEngine
-from auribrain.memory_orchestrator import MemoryOrchestrator
+from auribrain.context_engine import ContextEngine
 from auribrain.personality_engine import PersonalityEngine
+from auribrain.response_engine import ResponseEngine
+from auribrain.actions_engine import ActionsEngine
+from auribrain.entity_extractor import EntityExtractor
+from auribrain.memory_orchestrator import MemoryOrchestrator
+from auribrain.fact_extractor import extract_facts
 from auribrain.emotion_engine import EmotionEngine
 from auribrain.voice_emotion_analyzer import VoiceEmotionAnalyzer
-from auribrain.fact_extractor import extract_facts
 
-# Acciones
-from .auri_mind import AuriMindV9
-from auribrain.actions_engine import ActionsEngine
-
-# Modos inteligentes (plug-ins)
+# Modos especiales
 from auribrain.crisis_engine import CrisisEngine
-from auribrain.sleep_engine import SleepEngine
-from auribrain.slang_mode_engine import SlangModeEngine
-from auribrain.energy_engine import EnergyEngine
 from auribrain.focus_engine import FocusEngine
+from auribrain.sleep_engine import SleepEngine
+from auribrain.love_mode_engine import LoveModeEngine
+from auribrain.energy_engine import EnergyEngine
+from auribrain.slang_mode_engine import SlangModeEngine
 from auribrain.journal_engine import JournalEngine
 from auribrain.mental_health_engine import MentalHealthEngine
 from auribrain.routine_engine import RoutineEngine
 from auribrain.weather_advice_engine import WeatherAdviceEngine
-from auribrain.love_mode_engine import LoveModeEngine
 
-# Smart layers
+# Nuevos módulos
 from auribrain.emotion_smartlayer_v3 import EmotionSmartLayerV3
 from auribrain.precision_mode_v2 import PrecisionModeV2
+
+
 
 
 # ============================================================

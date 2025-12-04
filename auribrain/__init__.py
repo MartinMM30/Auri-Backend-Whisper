@@ -10,5 +10,3 @@ from .sleep_engine import SleepEngine
 from .energy_engine import EnergyEngine
 from .love_mode_engine import LoveModeEngine
 
-# Exponer el modelo principal
-from .auri_mind import AuriMindV9 as AuriMind
