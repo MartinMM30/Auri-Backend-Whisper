@@ -1,3 +1,5 @@
+# auribrain/context_engine.py
+
 from datetime import datetime
 from typing import Any, Dict, List
 
@@ -5,9 +7,8 @@ from typing import Any, Dict, List
 class ContextEngine:
 
     def __init__(self):
-        self._ctx = {}
-        self._ready = False
-        self._active_uid = None  
+        # UID del usuario autenticado (WEBsocket)
+        self._active_uid = None
 
         # USER
         self.user = {
@@ -15,7 +16,7 @@ class ContextEngine:
             "city": None,
             "birthday": None,
             "occupation": None,
-            "firebase_uid": None,   # 🔥 Ahora sí lo incluimos
+            "firebase_uid": None,
         }
 
         # WEATHER
@@ -42,34 +43,33 @@ class ContextEngine:
         # TIMEZONE
         self.tz = "UTC"
 
-        # TIME INFO
+        # TIME / DATE
         self.current_time_iso = None
         self.current_time_pretty = None
         self.current_date_pretty = None
 
+        # Ready flag
         self.ready_flag = False
 
 
-    # ---------------------------------------------------------
-    # 🔐 Registrar UID del usuario real desde WebSocket
-    # ---------------------------------------------------------
+
+    # ===========================================================
+    # 🔐 UID desde WebSocket
+    # ===========================================================
     def set_user_uid(self, uid: str):
+        """ Guarda UID del usuario y lo mete al bloque user """
         self._active_uid = uid
-        self.user["firebase_uid"] = uid  # 🔥 CRÍTICO
+        self.user["firebase_uid"] = uid
         print(f"[ContextEngine] UID registrado en contexto: {uid}")
 
     def get_user_uid(self):
         return self._active_uid
 
 
-    # =====================================================
-    def attach_memory(self, memory):
-        self.memory = memory
 
-
-    # =====================================================
-    # SETTERS
-    # =====================================================
+    # ===========================================================
+    # SETTERS PARA SÍNCRO DE CONTEXTO
+    # ===========================================================
     def set_weather(self, w):
         self.weather = {
             "temp": getattr(w, "temp", None),
@@ -82,7 +82,7 @@ class ContextEngine:
             if k in data:
                 self.user[k] = data[k]
 
-        # 🔥 NO borrar uid si Flutter no lo manda
+        # No borrar UID si ya lo tenemos
         if "firebase_uid" in data and data["firebase_uid"]:
             self.user["firebase_uid"] = data["firebase_uid"]
 
@@ -118,9 +118,10 @@ class ContextEngine:
             self.current_date_pretty = date
 
 
-    # =====================================================
+
+    # ===========================================================
     # READY CONTROL
-    # =====================================================
+    # ===========================================================
     def is_ready(self) -> bool:
         return self.ready_flag
 
@@ -131,9 +132,10 @@ class ContextEngine:
         self.ready_flag = False
 
 
-    # =====================================================
-    # FINAL PAYLOAD PARA AURIMIND
-    # =====================================================
+
+    # ===========================================================
+    # CONTEXTO FINAL PARA AURIMIND
+    # ===========================================================
     def get_daily_context(self):
         return {
             "user": self.user,
@@ -144,12 +146,9 @@ class ContextEngine:
             "birthdays": self.birthdays,
             "payments": self.payments,
             "prefs": self.prefs,
-
-            # 🔥 CAMPOS NUEVOS
             "timezone": self.tz,
             "current_time_iso": self.current_time_iso,
             "current_time_pretty": self.current_time_pretty,
             "current_date_pretty": self.current_date_pretty,
-
             "ready": self.ready_flag,
         }

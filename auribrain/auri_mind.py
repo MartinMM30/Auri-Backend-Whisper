@@ -1,8 +1,6 @@
 # ============================================================
-# AURI MIND V9 — Modular, Preciso, Extensible
+# AURI MIND V9 — Modular, Preciso, Extensible (VERSIÓN FINAL)
 # ============================================================
-
-# auribrain/auri_mind.py
 
 from openai import OpenAI
 import re
@@ -13,7 +11,6 @@ from auribrain.context_engine import ContextEngine
 from auribrain.personality_engine import PersonalityEngine
 from auribrain.response_engine import ResponseEngine
 from auribrain.actions_engine import ActionsEngine
-from auribrain.entity_extractor import EntityExtractor
 from auribrain.memory_orchestrator import MemoryOrchestrator
 from auribrain.fact_extractor import extract_facts
 from auribrain.emotion_engine import EmotionEngine
@@ -31,10 +28,9 @@ from auribrain.mental_health_engine import MentalHealthEngine
 from auribrain.routine_engine import RoutineEngine
 from auribrain.weather_advice_engine import WeatherAdviceEngine
 
-# Nuevos módulos
+# Smart layers
 from auribrain.emotion_smartlayer_v3 import EmotionSmartLayerV3
 from auribrain.precision_mode_v2 import PrecisionModeV2
-
 
 
 
@@ -57,6 +53,7 @@ class AuriMindV9:
         "custom_love":   {"tone": "afectiva y suave",     "emoji": "💖", "length": "medio", "voice": "myGF_voice"},
     }
 
+
     # --------------------------------------------------------
     # INIT
     # --------------------------------------------------------
@@ -71,10 +68,8 @@ class AuriMindV9:
         self.emotion = EmotionEngine()
         self.voice_analyzer = VoiceEmotionAnalyzer()
 
-        # Acciones
+        # Acciones y modos
         self.actions = ActionsEngine()
-
-        # Modos
         self.crisis = CrisisEngine()
         self.sleep = SleepEngine()
         self.slang = SlangModeEngine()
@@ -93,6 +88,7 @@ class AuriMindV9:
         self.slang_profile = {}
         self.pending_action = None
 
+
     # ============================================================
     # Detectores principales
     # ============================================================
@@ -101,7 +97,7 @@ class AuriMindV9:
         KEYS = [
             "derivada", "integral", "ecuación", "resolver", "error",
             "debug", "flutter", "python", "dart", "código", "api",
-            "computo", "hpc", "cluster", "matriz", "vector", "x^", "dx"
+            "computo", "hpc", "cluster", "matriz", "vector", "dx", "x^"
         ]
         return any(k in t for k in KEYS)
 
@@ -115,11 +111,13 @@ class AuriMindV9:
         ]
         return any(k in t for k in KEYS)
 
+
     # ============================================================
     # THINK PIPELINE PRINCIPAL
     # ============================================================
-
     def think(self, user_msg: str, pcm=None):
+
+        # 0. Validación
         if not user_msg.strip():
             return {"final": "No escuché nada, ¿podrías repetirlo?", "voice_id": "alloy"}
 
@@ -130,9 +128,7 @@ class AuriMindV9:
         ctx = self.context.get_daily_context()
         uid = ctx["user"]["firebase_uid"]
 
-        # --------------------------------------------------------
-        # VOZ → emoción
-        # --------------------------------------------------------
+        # 1. Voz → emoción
         voice_emotion = None
         if pcm:
             try:
@@ -146,15 +142,13 @@ class AuriMindV9:
             voice_emotion=voice_emotion
         )
 
-        # --------------------------------------------------------
-        # Clasificación
-        # --------------------------------------------------------
+        # 2. Clasificación
         is_tech = self._is_technical(txt)
         is_info = self._is_info_query(txt)
         intent = self.intent.detect(user_msg)
 
         # --------------------------------------------------------
-        # 1) Crisis (máxima prioridad)
+        # PRIORIDAD 1: Crisis
         # --------------------------------------------------------
         if self.crisis.detect(user_msg, emotion_snapshot):
             msg = self.crisis.respond(ctx["user"]["name"])
@@ -162,26 +156,32 @@ class AuriMindV9:
             return {"final": msg, "voice_id": "alloy", "intent": "crisis"}
 
         # --------------------------------------------------------
-        # 2) Sleep
+        # PRIORIDAD 2: Sueño
         # --------------------------------------------------------
         if not is_tech and not is_info:
             if self.sleep.detect(txt, emotion_snapshot["overall"], ctx):
-                msg = self.sleep.respond(ctx, emotion_snapshot["overall"])
-                return {"final": msg, "voice_id": "alloy", "intent": "sleep"}
+                return {
+                    "final": self.sleep.respond(ctx, emotion_snapshot["overall"]),
+                    "voice_id": "alloy",
+                    "intent": "sleep"
+                }
 
         # --------------------------------------------------------
-        # 3) Slang
+        # PRIORIDAD 3: Slang automático
         # --------------------------------------------------------
         slang = None
         if not is_info and not is_tech:
             slang = self.slang.detect(txt, self.slang_profile)
 
         if slang:
-            msg = self.slang.respond(slang, self.slang_profile)
-            return {"final": msg, "voice_id": "alloy", "intent": "slang"}
+            return {
+                "final": self.slang.respond(slang, self.slang_profile),
+                "voice_id": "alloy",
+                "intent": "slang"
+            }
 
         # --------------------------------------------------------
-        # 4) Info Query (resolver sin LLM)
+        # PRIORIDAD 4: Info Query sin LLM
         # --------------------------------------------------------
         if is_info:
             answer = self._resolve_info(uid, txt)
@@ -190,14 +190,14 @@ class AuriMindV9:
             return {"final": answer, "intent": "info", "voice_id": "alloy"}
 
         # --------------------------------------------------------
-        # 5) Technical Mode
+        # PRIORIDAD 5: Technical Mode
         # --------------------------------------------------------
         if is_tech or self.precise.detect(user_msg):
             final = self._llm(uid, user_msg, ctx, emotion_snapshot, precise=True)
             return {"final": final, "voice_id": "verse", "intent": intent}
 
         # --------------------------------------------------------
-        # 6) Otros modos inteligentes
+        # PRIORIDAD 6: Otros modos inteligentes
         # --------------------------------------------------------
         if self.focus.detect(txt):
             return {"final": self.focus.respond(ctx), "voice_id": "alloy", "intent": "focus"}
@@ -221,12 +221,12 @@ class AuriMindV9:
                 return {"final": self.routines.respond("auto"), "voice_id": "alloy", "intent": "routine"}
 
         # --------------------------------------------------------
-        # 7) Autoaprendizaje familiar / datos simples
+        # Auto aprendizaje familiar
         # --------------------------------------------------------
         self._auto_family(uid, txt)
 
         # --------------------------------------------------------
-        # 8) LLM GENERAL
+        # RESPUESTA GENERAL LLM
         # --------------------------------------------------------
         final = self._llm(uid, user_msg, ctx, emotion_snapshot, precise=False)
 
@@ -234,12 +234,12 @@ class AuriMindV9:
         self.memory.add_dialog(uid, "user", user_msg)
         self.memory.add_dialog(uid, "assistant", final)
 
-        # Guardar en memoria semántica si procede
+        # Memoria semántica
         if not is_tech and not is_info:
             self.memory.add_semantic(uid, f"user: {user_msg}")
             self.memory.add_semantic(uid, f"assistant: {final}")
 
-        # Guardar hechos estructurados
+        # Hechos estructurados
         try:
             for f in extract_facts(user_msg):
                 self.memory.add_fact_structured(uid, f)
@@ -248,12 +248,13 @@ class AuriMindV9:
 
         return {"final": final, "voice_id": "alloy", "intent": intent}
 
+
+
     # ============================================================
-    #  INFO QUERY 2.0 (determinístico, no usa LLM)
+    # INFO QUERY 2.0 (sin LLM)
     # ============================================================
 
     def _resolve_info(self, uid, txt):
-        facts = self.memory.get_facts(uid)
 
         ROLES = {
             "mamá": "madre", "mama": "madre",
@@ -263,7 +264,7 @@ class AuriMindV9:
             "novia": "pareja", "pareja": "pareja",
         }
 
-        # Resolver familiar
+        # Familia
         for word, role in ROLES.items():
             if word in txt:
                 items = self.memory.get_family_by_role(uid, role)
@@ -275,7 +276,7 @@ class AuriMindV9:
                         return f"Tus {role}s se llaman: {', '.join(names)}."
                 return f"No tengo guardado el nombre de tu {role}. ¿Querés decírmelo?"
 
-        # Resolver mascotas
+        # Mascotas
         if "mascotas" in txt or "animales" in txt:
             pets = self.memory.get_pets(uid)
             if not pets:
@@ -285,8 +286,9 @@ class AuriMindV9:
 
         return "Todavía no tengo ese dato guardado. ¿Querés contármelo?"
 
+
     # ============================================================
-    # LLM (modo general o técnico)
+    # LLM (general o técnico)
     # ============================================================
 
     def _llm(self, uid, msg, ctx, emotion, precise=False):
@@ -305,8 +307,7 @@ REGLAS:
 2. Si el usuario está emocional, respondé con calidez.
 3. Si es consulta técnica: respondé conciso y directo.
 4. Si es conversación normal: respondé natural y amable.
-5. Si hay riesgo emocional: validá y contené.
-6. Siempre mantené coherencia con la personalidad seleccionada.
+5. Siempre mantené coherencia con la personalidad seleccionada.
 
 Personalidad:
 - Tono: {sty['tone']} {sty['emoji']}
@@ -323,8 +324,10 @@ Personalidad:
 
         return (resp.output_text or "").strip()
 
+
+
     # ============================================================
-    # Auto-aprendizaje familiar simple
+    # Auto-aprendizaje familiar
     # ============================================================
 
     def _auto_family(self, uid, txt):
@@ -344,8 +347,37 @@ Personalidad:
             })
 
 
-# Alias
-AuriMind = AuriMindV9
+    # ============================================================
+    # UID DESDE WEBSOCKET
+    # ============================================================
+
+    def set_user_uid(self, uid: str):
+        """
+        Asignación UID para server.py y STT.
+        Prepara el perfil de memoria para ese usuario.
+        """
+        if not uid:
+            return
+
+        try:
+            # ContextEngine Update (debe existir este método)
+            if hasattr(self.context, "set_user_uid"):
+                self.context.set_user_uid(uid)
+
+            # Precarga de memoria
+            self.memory.get_user_profile(uid)
+            self.memory.get_recent_dialog(uid)
+            self.memory.get_facts(uid)
+
+            print(f"UID detectado por AuriMind: {uid}")
+
+        except Exception as e:
+            print(f"[AuriMindV9] Error asignando UID: {e}")
+
+
+
+# Compatibilidad retro
+AuriMind  = AuriMindV9
 AuriMindV6 = AuriMindV9
 AuriMindV7 = AuriMindV9
 AuriMindV8 = AuriMindV9
