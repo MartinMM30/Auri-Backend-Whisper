@@ -211,6 +211,75 @@ class AuriMindV10_1:
             "cuál es el nombre", "cual es el nombre",
         ]
         return any(k in txt for k in INFO_QUERY_KEYWORDS)
+    def _should_allow_emotional_modes(self, txt: str) -> bool:
+        """
+        Permite activar modos emocionales solo si la frase
+        realmente indica un estado interno del usuario.
+        Evita disparos falsos como "ok", "hola", "perfecto", etc.
+        """
+        txt = txt.lower().strip()
+
+        # Expresiones neutrales → NO moods
+        NEUTRAL = [
+            "ok", "ok.", "okey", "okay",
+            "hola", "hey", "buenas",
+            "perfecto", "perfect", "perfect.", "bien",
+            "gracias", "dale", "va", "listo",
+            "sí", "si", "aja",
+            "entendido", "comprendido",
+            "claro", "claro.",
+            "de acuerdo", "de acuerdo.",
+            "vale", "vale.",
+            "muy bien", "muy bien.",
+            "genial", "genial.",
+            "excelente", "excelente.",
+            "bueno", "bueno.",
+            "adiós", "adios", "chau", "nos vemos",
+            "hasta luego", "hasta la próxima", "hasta la proxima",
+            "sí.", "si.",
+            "no.", "no.",
+            "gracias.", "muchas gracias",
+            "por favor", "por favor.",
+            
+        ]
+        if txt in NEUTRAL:
+            return False
+
+    # Usuario realmente habla de su estado interno → moods permitidos
+        EMO_KEYS = [
+            "estoy triste", "me siento triste",
+            "estoy cansado", "estoy cansada",
+            "tengo ansiedad", "tengo miedo",
+            "estoy feliz", "me siento feliz",
+            "no tengo energía", "sin energía",
+            "me siento sin ganas", "estoy mal",
+            "estoy desmotivado", "estoy motivado",
+            "estoy agotado", "estoy agotada",
+            "estoy enojado", "estoy enojada",
+            "me siento raro", "me siento mal",
+            "me siento abrumado", "me siento abrumada",
+            "me siento estresado", "me siento estresada",
+            "me siento solo", "me siento sola",
+            "necesito ayuda", "quiero ayuda",
+            "me siento bien", "estoy bien",
+            "me siento genial", "estoy genial",
+            "me siento increíble", "estoy increíble",
+            "me siento agotado", "me siento agotada",
+            "me siento emocionado", "me siento emocionada",
+            "estoy emocionado", "estoy emocionada",
+            "me siento relajado", "me siento relajada",
+            "estoy relajado", "estoy relajada",
+            "me siento estresado", "me siento estresada",
+            "estoy estresado", "estoy estresada",
+            "me siento abrumado", "me siento abrumada",
+            "estoy abrumado", "estoy abrumada",
+        ]
+        if any(k in txt for k in EMO_KEYS):
+            return True
+
+    # Si la frase NO expresa estado interno → NO moods
+        return False
+
 
     # ============================================================
     # THINK PIPELINE PRINCIPAL
@@ -310,9 +379,8 @@ class AuriMindV10_1:
         # 2) Sleep Mode
         # --------------------------------------------------------
         if (
-            not skip_modes
-            and not is_info_query
-            and not is_technical_query
+            self._should_allow_emotional_modes(txt)
+            and not skip_modes
         ):
             if self.sleep.detect(txt, overall, ctx):
                 msg = self.sleep.respond(ctx, overall)
@@ -328,9 +396,8 @@ class AuriMindV10_1:
         # --------------------------------------------------------
         slang_mode = None
         if (
-            not skip_modes
-            and not is_info_query
-            and not is_technical_query
+            self._should_allow_emotional_modes(txt)
+            and not skip_modes
         ):
             slang_mode = self.slang.detect(txt, self.slang_profile)
 
@@ -387,10 +454,8 @@ class AuriMindV10_1:
         # --------------------------------------------------------
         energy_mode = ""
         if (
-            not skip_modes
-            and not precision_active
-            and not is_info_query
-            and not is_technical_query
+            self._should_allow_emotional_modes(txt)
+            and not skip_modes
         ):
             energy_mode = self.energy_mode.detect(txt, energy)
 
@@ -407,9 +472,8 @@ class AuriMindV10_1:
         # 7) Salud mental (no interrumpir técnico)
         # --------------------------------------------------------
         if (
-            not skip_modes
-            and not is_info_query
-            and not is_technical_query
+           self._should_allow_emotional_modes(txt)
+           and not skip_modes
         ):
             is_first_mental = self.mental.detect(txt, stress)
             if is_first_mental:
