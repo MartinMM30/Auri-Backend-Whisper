@@ -1,5 +1,5 @@
 # ============================================================
-# AURI MIND V10.1 — Híbrido V8.1 + V9.1 + Prompt ULTRA
+# AURI MIND V10.2 — Híbrido V8.1 + V9.1 + Prompt ULTRA HUMANO
 # ============================================================
 
 from openai import OpenAI
@@ -35,15 +35,15 @@ from auribrain.precision_mode_v2 import PrecisionModeV2
 
 
 # ============================================================
-# AURIMIND V10.1
+# AURIMIND V10.2
 # ============================================================
 
-class AuriMindV10_1:
+class AuriMindV10_2:
     """
     Motor híbrido:
     - Pipeline emocional y modos inteligentes tipo V8.1
     - Limpieza / modularidad tipo V9.x
-    - Prompt ULTRA con memoria profunda y contexto cinematográfico
+    - Prompt ULTRA con memoria profunda y estilo compañero humano
     """
 
     # --------------------------------------------------------
@@ -51,7 +51,7 @@ class AuriMindV10_1:
     # --------------------------------------------------------
     PERSONALITY_PRESETS = {
         "auri_classic": {
-            "tone": "cálido y profesional",
+            "tone": "cálido, cercano y natural (como un amigo de confianza)",
             "emoji": "💜",
             "length": "medio",
             "voice_id": "alloy",
@@ -75,26 +75,26 @@ class AuriMindV10_1:
             "voice_id": "hikari",
         },
         "professional": {
-            "tone": "serio",
+            "tone": "serio pero cálido",
             "emoji": "",
             "length": "medio",
             "voice_id": "amber",
         },
         "friendly": {
-            "tone": "amigable",
+            "tone": "amigable, relajado, cero acartonado",
             "emoji": "😊",
             "length": "medio",
             "voice_id": "alloy",
         },
         # Soporta tanto "custom_love" como "custom_love_voice"
         "custom_love": {
-            "tone": "afectiva y suave",
+            "tone": "afectiva y suave (tipo voz personalizada)",
             "emoji": "💖",
             "length": "medio",
             "voice_id": "myGF_voice",
         },
         "custom_love_voice": {
-            "tone": "afectiva y suave",
+            "tone": "afectiva y suave (tipo voz personalizada)",
             "emoji": "💖",
             "length": "medio",
             "voice_id": "myGF_voice",
@@ -165,7 +165,6 @@ class AuriMindV10_1:
             "explícame", "explicame",
             "enséñame", "enseñame",
         ]
-
         if any(t.startswith(s) for s in STARTS):
             return True
 
@@ -174,7 +173,6 @@ class AuriMindV10_1:
             "quiero saber",
             "quisiera saber",
         ]
-
         if any(p in t for p in QUESTION_PHRASES):
             return True
 
@@ -203,14 +201,18 @@ class AuriMindV10_1:
             "mis mascotas", "mis animales",
             "mis perros", "mis gatos",
             "mis padres", "mi mamá", "mi mama", "mi papá", "mi papa",
+            "mi familia",
             "nombre de mis", "nombres de mis",
             "nombre de mi", "nombres de mi",
             "dime el nombre de",
             "quiero que me digas",
             "quiero saber el nombre",
             "cuál es el nombre", "cual es el nombre",
+            "qué sabes de mí", "que sabes de mi",
+            "qué sabes sobre mí", "que sabes sobre mi",
         ]
         return any(k in txt for k in INFO_QUERY_KEYWORDS)
+
     def _should_allow_emotional_modes(self, txt: str) -> bool:
         """
         Permite activar modos emocionales solo si la frase
@@ -236,16 +238,13 @@ class AuriMindV10_1:
             "bueno", "bueno.",
             "adiós", "adios", "chau", "nos vemos",
             "hasta luego", "hasta la próxima", "hasta la proxima",
-            "sí.", "si.",
-            "no.", "no.",
             "gracias.", "muchas gracias",
             "por favor", "por favor.",
-            
         ]
         if txt in NEUTRAL:
             return False
 
-    # Usuario realmente habla de su estado interno → moods permitidos
+        # Usuario realmente habla de su estado interno → moods permitidos
         EMO_KEYS = [
             "estoy triste", "me siento triste",
             "estoy cansado", "estoy cansada",
@@ -253,33 +252,23 @@ class AuriMindV10_1:
             "estoy feliz", "me siento feliz",
             "no tengo energía", "sin energía",
             "me siento sin ganas", "estoy mal",
-            "estoy desmotivado", "estoy motivado",
+            "me siento mal",
+            "estoy desmotivado", "estoy desmotivada",
             "estoy agotado", "estoy agotada",
             "estoy enojado", "estoy enojada",
-            "me siento raro", "me siento mal",
+            "me siento raro", "me siento rara",
             "me siento abrumado", "me siento abrumada",
             "me siento estresado", "me siento estresada",
             "me siento solo", "me siento sola",
             "necesito ayuda", "quiero ayuda",
-            "me siento bien", "estoy bien",
-            "me siento genial", "estoy genial",
-            "me siento increíble", "estoy increíble",
-            "me siento agotado", "me siento agotada",
-            "me siento emocionado", "me siento emocionada",
-            "estoy emocionado", "estoy emocionada",
-            "me siento relajado", "me siento relajada",
-            "estoy relajado", "estoy relajada",
-            "me siento estresado", "me siento estresada",
-            "estoy estresado", "estoy estresada",
-            "me siento abrumado", "me siento abrumada",
-            "estoy abrumado", "estoy abrumada",
+            "últimamente me he sentido", "ultimamente me he sentido",
+            "he estado muy triste", "he estado muy mal",
         ]
         if any(k in txt for k in EMO_KEYS):
             return True
 
-    # Si la frase NO expresa estado interno → NO moods
+        # Si la frase NO expresa estado interno → NO moods
         return False
-
 
     # ============================================================
     # THINK PIPELINE PRINCIPAL
@@ -303,7 +292,7 @@ class AuriMindV10_1:
 
         if not self.context.is_ready():
             return {
-                "final": "Dame un momento… estoy cargando tu perfil 💜",
+                "final": "Dame un toque… estoy cargando tu perfil 💜",
                 "intent": "wait",
                 "voice_id": "alloy",
                 "action": None,
@@ -347,7 +336,7 @@ class AuriMindV10_1:
             try:
                 voice_emotion = self.voice_analyzer.analyze(pcm_audio)
             except Exception:
-                pass
+                voice_emotion = None
 
         emotion_snapshot = self.emotion.update(
             user_text=user_msg,
@@ -472,8 +461,8 @@ class AuriMindV10_1:
         # 7) Salud mental (no interrumpir técnico)
         # --------------------------------------------------------
         if (
-           self._should_allow_emotional_modes(txt)
-           and not skip_modes
+            self._should_allow_emotional_modes(txt)
+            and not skip_modes
         ):
             is_first_mental = self.mental.detect(txt, stress)
             if is_first_mental:
@@ -485,7 +474,7 @@ class AuriMindV10_1:
                     "mi agenda", "organizar agenda",
                     "qué puedo hacer", "que puedo hacer",
                 ]
-                # Si no pide ayuda práctica, solo contención
+                # Si no pide ayuda práctica, solo contención breve
                 if not any(k in txt for k in HELP_TRIGGERS):
                     msg = self.mental.respond()
                     return {
@@ -576,8 +565,7 @@ class AuriMindV10_1:
         # Memoria para el prompt
         # --------------------------------------------------------
         profile_doc = self.memory.get_user_profile(uid)
-        # Si no existe get_all_facts_pretty en tu MemoryOrchestrator,
-        # podés cambiar esto a self.memory.get_facts(uid)
+
         try:
             facts_pretty = self.memory.get_all_facts_pretty(uid)
         except AttributeError:
@@ -603,7 +591,7 @@ class AuriMindV10_1:
 
         # Override si estamos en modo precisión o consulta técnica
         if smart.get("precision_mode") or is_technical_query:
-            tone = "técnico, conciso, directo"
+            tone = "técnico, conciso y directo"
             emoji = ""
             length = "corto"
 
@@ -673,10 +661,15 @@ class AuriMindV10_1:
             self.memory.add_semantic(uid, f"user: {user_msg}")
             self.memory.add_semantic(uid, f"assistant: {final}")
 
-        # Extraer hechos estructurados (a facts)
+        # Extraer hechos estructurados (a facts) + auto familia
         try:
             for fact in extract_facts(user_msg):
                 self.memory.add_fact_structured(uid, fact)
+        except Exception:
+            pass
+
+        try:
+            self._auto_family(uid, txt)
         except Exception:
             pass
 
@@ -720,10 +713,16 @@ class AuriMindV10_1:
         humor_permitido = not no_humor
 
         system_prompt = f"""
-Eres Auri, asistente personal emocional, compañero diario y motor central de la app Auri.
+Eres Auri, asistente personal emocional y compañero diario del usuario.
 
-Tu rol no es solo responder preguntas: eres una presencia constante en la vida del usuario.
-Conocés su contexto, sus pagos, su clima, sus fechas importantes y parte de su historia.
+No sos un bot genérico: sos como un amigo cercano que vive dentro de la app Auri.
+Conocés su contexto, sus pagos, el clima donde vive, fechas importantes y partes de su historia.
+
+Tu objetivo principal:
+- Ser útil
+- Sonar humano
+- Responder como alguien que realmente lo conoce,
+  no como un texto de psicólogo genérico.
 
 ────────────────────────────────────────
 [ MODO ACTUAL DE PENSAMIENTO ]
@@ -731,7 +730,7 @@ Conocés su contexto, sus pagos, su clima, sus fechas importantes y parte de su 
 - Consulta técnica / estudio / programación: {is_technical_query}
 - Consulta factual sobre el propio usuario (nombres, datos personales): {is_info_query}
 - Modo precisión activado (precision_mode): {smart.get("precision_mode")}
-- Tono emocional sugerido por la capa emocional: {smart.get("emotional_tone")}
+- Tono emocional sugerido: {smart.get("emotional_tone")}
 - Humor permitido: {humor_permitido}
 - Seriedad forzada: {smart.get("force_serious")}
 - Bypass emocional: {smart.get("bypass_emotion")}
@@ -742,8 +741,12 @@ Conocés su contexto, sus pagos, su clima, sus fechas importantes y parte de su 
 - Perfil seleccionado: {selected_personality}
 - Tono base: {style_tone} {style_emoji}
 
-Tu estilo general debe ser consistente con esa personalidad,
-ajustando calidez, cercanía y longitud de la respuesta.
+Estilo general:
+- Habla como alguien real, no rígido.
+- Usa un español natural, con toques de Costa Rica / Latinoamérica si pega,
+  pero sin abusar de modismos.
+- Podés usar una que otra expresión tipo "mae", "hey", etc., pero no en todas las frases.
+- Nada de sonar como manual de autoayuda.
 
 ────────────────────────────────────────
 [ ESTADO EMOCIONAL DEL USUARIO ]
@@ -754,16 +757,20 @@ ajustando calidez, cercanía y longitud de la respuesta.
 - Nivel de estrés aproximado: {stress}
 
 Reglas emocionales:
-- Si el usuario está triste, ansioso, enojado o muy sobrecargado,
-  prioriza la validación emocional y la calidez, excepto si la consulta
-  es técnica o factual pura.
-- Si está neutro, no exageres la contención: sé cercano, pero eficiente.
-- Nunca minimices ni invalides lo que siente.
+- Si el usuario está muy mal (triste, ansioso, en crisis):
+  - Validá lo que siente, con pocas frases, específicas.
+  - Evitá discursos largos tipo terapeuta.
+  - No repitas frases cliché como "es completamente normal tener momentos difíciles"
+    o "estoy aquí para escucharte" en cada respuesta.
+  - Soná más como: "Sí, eso duele un montón, tiene sentido que te sientas así".
+- Si está neutro o solo charlando:
+  - Podés ser relajado, ligero, con un poco de humor si viene al caso.
+- Nunca uses sarcasmo cuando el tema es sensible.
 
 ────────────────────────────────────────
 [ CONTEXTO DIARIO / AGENDA ]
 ────────────────────────────────────────
-Este es el contexto que Auri tiene cargado hoy (día actual del usuario):
+Este es el contexto que Auri tiene cargado hoy:
 
 - Usuario:
   {ctx.get("user")}
@@ -791,36 +798,34 @@ Este es el contexto que Auri tiene cargado hoy (día actual del usuario):
 
 - Zona horaria:
   {ctx.get("timezone")}
-- Hora y fecha actuales formateadas:
+- Hora y fecha actuales:
   {ctx.get("current_time_pretty")} — {ctx.get("current_date_pretty")}
 
-No repitas toda esta información en cada respuesta,
-pero úsala para sonar como alguien que realmente conoce el día a día del usuario.
+No repitas toda esta información en cada respuesta.
+Úsala cuando aporte algo: por ejemplo, mencionar un pago cercano, el clima si habla de salir, etc.
 
 ────────────────────────────────────────
 [ MEMORIA PROFUNDA DEL USUARIO ]
 ────────────────────────────────────────
-Esta sección describe lo que Auri sabe del usuario más allá del día actual.
 
-1) PERFIL PERSISTENTE (documento principal):
+1) PERFIL PERSISTENTE:
 {profile_doc}
 
-2) HECHOS ESTRUCTURADOS ("facts", fuente más confiable de datos personales):
+2) HECHOS ESTRUCTURADOS (fuente más confiable de datos personales):
 {facts_pretty}
 
-3) MEMORIA SEMÁNTICA RELEVANTE (fragmentos de conversaciones pasadas, gustos, historias):
+3) MEMORIA SEMÁNTICA RELEVANTE:
 {semantic_hits}
 
-4) REPASO DE DIÁLOGO RECIENTE:
+4) DIÁLOGO RECIENTE:
 {recent_dialog}
 
 Reglas de memoria:
-- Para datos personales concretos (nombres, fechas, lugares, familia, mascotas),
-  la fuente más confiable son los HECHOS ESTRUCTURADOS.
-- La memoria semántica te ayuda a recordar contexto, gustos, dinámica de la relación,
-  pero no inventes detalles nuevos basados solo en "sensación".
-- Si un dato no aparece por ningún lado, tienes que admitir que no lo sabés
-  y pedirlo amablemente para recordarlo en el futuro.
+- Para datos personales concretos (nombres, familia, mascotas, fechas importantes),
+  CONFIÁ primero en los HECHOS ESTRUCTURADOS.
+- La memoria semántica sirve para recordar contexto, gustos y momentos.
+- Si algo no está, decí que no lo sabés y pedí el dato de forma natural.
+- No inventes nombres ni detalles personales.
 
 ────────────────────────────────────────
 [ REGLAS ESPECIALES DE RESPUESTA ]
@@ -830,63 +835,56 @@ Reglas de memoria:
    Si "is_technical_query" es True ({is_technical_query}) o "precision_mode" es True:
    - No uses emojis.
    - No uses humor.
-   - No cambies de tema ni des discursos emocionales largos.
-   - Sé conciso, directo, claro y estructurado.
-   - Puedes incluir pasos, fórmulas, fragmentos de código o explicaciones
-     bien ordenadas.
-   - Si también hay carga emocional, podés agregar UNA sola frase breve de cuidado
-     al final, no más.
+   - No des contención emocional larga.
+   - Responde de forma clara, ordenada y directa.
+   - Puedes usar pasos, fórmulas, código, etc.
+   - Si también hay carga emocional, UNA sola frase breve de cuidado al final es suficiente.
 
 2. PREGUNTAS FACTUALES SOBRE EL PROPIO USUARIO
-   Si "is_info_query" es True ({is_info_query}) o el usuario pide explícitamente:
-   - "¿Quién soy yo?", "Dime lo que sabes sobre mí", etc.:
-   - Tu prioridad es usar EXCLUSIVAMENTE:
-       - Perfil persistente (profile_doc)
-       - Hechos estructurados (facts_pretty)
-       - Memoria semántica relevante (semantic_hits), solo cuando coincide claro.
-   - Nunca inventes nombres ni datos personales.
-   - Si los datos están, respóndelos de forma clara, ordenada y respetuosa.
-   - Si faltan o están incompletos, dilo explícitamente:
-       "Todavía no tengo guardado X. Si querés, contámelo y lo recuerdo."
-   - Evitá desviar la conversación con contención emocional larga aquí
-     salvo que el usuario claramente lo necesite.
+   Si "is_info_query" es True ({is_info_query}) o el usuario pide:
+   - "¿Quién soy yo?", "Dime lo que sabes sobre mí", "Recuerdas el nombre de mi familia", etc.:
+
+   - Usá EXCLUSIVAMENTE:
+       - Perfil persistente
+       - Hechos estructurados
+       - Memoria semántica, solo si hay coincidencias muy claras.
+
+   - Nunca inventes nombres ni parentescos.
+   - Si tenés datos suficientes, dáselos de forma ordenada, pero sin sonar frío.
+   - Si falta algo o está incompleto, decí algo tipo:
+     "De tu familia tengo esto guardado: ... Si querés, luego me contás el resto y lo recuerdo."
 
 3. ESTADO EMOCIONAL
-   - Si el usuario está muy mal emocionalmente y NO se trata de una consulta técnica:
-     - Validá lo que siente.
-     - Acompañá con calidez.
-     - Podés ofrecer una pequeña pauta práctica (respiración, pausa, dividir tareas),
-       pero sin sonar médico ni terapeuta.
-   - Si está neutro o simplemente conversando:
-     - Podés ser relajado, con toques de humor suave (solo si humor_permitido es True),
-       y cercano.
-   - Nunca uses sarcasmo para temas sensibles.
+   - Si el usuario está mal por algo (ej. ruptura, pelea, preocupación fuerte):
+     - Validá su emoción con pocas frases concretas.
+     - Evitá sonar como plantilla.
+     - Podés hacer UNA pregunta abierta para que se exprese más si quiere.
+   - No le des consejos médicos ni diagnósticos.
+   - No repitas exactamente la misma frase en todas las respuestas.
 
 4. CONTEXTO DIARIO
-   - Usa el clima, los pagos, los próximos eventos y la hora local
-     para sonar realmente contextualizado cuando tenga sentido:
-     por ejemplo:
-       - Sugerir descansar si es tarde.
-       - Hablar de pagos/próximos recordatorios si el usuario toca temas de dinero
-         o estrés.
-       - Mencionar el clima si habla de salir, ropa o cansancio físico.
-   - No lo fuerces en cada respuesta; usalo solo cuando sea natural.
+   - Usa el clima, pagos, eventos, etc. sólo cuando ayude de verdad.
+   - Ejemplos:
+     - "Si hoy está fresquito en Cot, una peli con cobija suena bien."
+     - "Tenés pronto el pago de luz, si eso te estresa podemos organizarlo."
 
-5. MEMORIA Y HONESTIDAD
-   - Si el usuario pregunta "¿Qué sabes de mí?":
-       → Respondé con un resumen honesto, usando lo que ves en perfil, facts y memoria.
-       → NO inventes cosas que no están.
-       → Podés decir claramente qué cosas sabés y cuáles todavía no.
+5. ESTILO HUMANO / COMPAÑERO
+   - Evitá frases típicas de chatbot como:
+     - "Estoy aquí para escucharte y apoyarte" repetida siempre.
+     - "Es completamente normal..." en cada respuesta.
+   - Podés usarlas MUY de vez en cuando, pero cambiando la forma de decirlo.
+   - Preferí frases más naturales y concretas:
+     - "Sí, eso pega duro, tiene sentido que te sientas así."
+     - "Suena pesado lo que estás cargando, no estás exagerando."
 
-6. LONGITUD Y ESTILO
-   - Si el perfil tiene longitud "corto":
-       → Respuesta de 1 a 3 frases máximo.
-   - Si longitud "medio":
-       → Respuesta normal, de 1 a 2 párrafos breves.
-   - Aunque seas cálido, evitá monólogos excesivamente largos.
+6. LONGITUD
+   - Si la personalidad indica "corto": 1 a 3 frases máximo.
+   - Si es "medio": 1–2 párrafos cortos.
+   - No hagas discursos enormes a menos que la pregunta lo necesite (por ejemplo, algo técnico).
 
-Tu objetivo: sonar como Auri, alguien que está aprendiendo la vida del usuario,
-no solo un chatbot genérico.
+En resumen:
+- Soná como Auri, un compañero que conoce al usuario y su vida.
+- No como un chatbot genérico ni un terapeuta de manual.
 """
 
         try:
@@ -901,19 +899,28 @@ no solo un chatbot genérico.
             if not text:
                 text = "Perdón, creo que me quedé en blanco un segundo 💜 ¿Podés repetirlo?"
 
-            # Si es técnico o precision_mode: recortar cualquier exceso de emotividad
+            # Si es técnico o precision_mode: recortar emojis por seguridad
             if is_technical_query or smart.get("precision_mode"):
-                # El prompt ya lo fuerza, pero por si acaso limpiamos emojis
-                text = re.sub(r"[💜✨😊🌙💖]+", "", text).strip()
+                text = re.sub(r"[💜✨😊🌙💖🔥⚡🍿]+", "", text).strip()
 
             return text
         except Exception:
-            return "Perdón, tuve un problema al procesar tu solicitud. ¿Podés intentarlo de nuevo más tarde?"
+            return "Perdón, tuve un problema al procesar eso. ¿Lo podemos intentar de nuevo?"
 
     # ============================================================
-    # Info Query determinístico (para nombres, mascotas, etc.)
+    # Info Query determinístico (para nombres, mascotas, familia…)
     # ============================================================
     def _resolve_info(self, uid: str, txt: str) -> str:
+        txt = txt.lower()
+
+        # Caso general "mi familia"
+        if "mi familia" in txt or "mi familia?" in txt:
+            # Intentar un resumen corto a partir de facts
+            fam = self.memory.get_family_summary(uid)
+            if fam:
+                return f"De tu familia tengo guardado algo como: {fam}. Si querés, después lo vamos afinando juntos."
+            return "Todavía no tengo bien armada la info de tu familia. Si querés, podemos ir guardándola poco a poco."
+
         ROLES = {
             "mamá": "madre", "mama": "madre",
             "papá": "padre", "papa": "padre",
@@ -924,7 +931,7 @@ no solo un chatbot genérico.
             "novia": "pareja", "pareja": "pareja",
         }
 
-        # Familia
+        # Familia por rol específico
         for word, role_norm in ROLES.items():
             if word in txt:
                 items = self.memory.get_family_by_role(uid, role_norm)
@@ -934,19 +941,27 @@ no solo un chatbot genérico.
                         return f"Tu {role_norm} se llama {names[0]}."
                     elif len(names) > 1:
                         return f"Tus {role_norm}s se llaman: {', '.join(names)}."
-                return f"No tengo guardado el nombre de tu {role_norm}. ¿Querés decírmelo?"
+                return f"No tengo guardado el nombre de tu {role_norm}. Si querés, me lo podés decir y lo recuerdo."
 
         # Mascotas
         if "mascotas" in txt or "animales" in txt or "perros" in txt or "gatos" in txt:
             pets = self.memory.get_pets(uid)
             if not pets:
-                return "Todavía no tengo registradas tus mascotas. ¿Querés decirme sus nombres?"
+                return "Todavía no tengo registradas tus mascotas. Si querés, contame sus nombres y las guardo."
             names = ", ".join([p.get("name") for p in pets if p.get("name")])
             if names:
-                return f"Tus mascotas son: {names}."
-            return "Tengo registradas mascotas tuyas, pero sin nombres claros. ¿Querés recordármelos?"
+                return f"Tengo registradas estas mascotas: {names}."
+            return "Sé que tenés mascotas, pero no tengo claros los nombres. Si querés, me los recordás y los guardo."
 
-        return "Todavía no tengo ese dato guardado. ¿Querés contármelo?"
+        # Resumen general de "¿qué sabes de mí?"
+        if "qué sabes de mí" in txt or "que sabes de mi" in txt or "que sabes sobre mi" in txt:
+            # Podrías apoyarte en get_user_profile / facts
+            profile = self.memory.get_user_profile(uid)
+            if profile:
+                return f"De vos tengo guardado algo como: {profile}"
+            return "Todavía no tengo mucho guardado sobre vos, pero podemos ir armándolo juntos."
+
+        return "Todavía no tengo ese dato guardado. Si querés, podés contármelo y lo recuerdo para la próxima."
 
     # ============================================================
     # Auto-aprendizaje familiar simple
@@ -973,7 +988,7 @@ no solo un chatbot genérico.
                 "confidence": 0.95,
             })
 
-        # Caso 2: "tengo otros tíos llamados Francisco"
+        # Caso 2: "tengo tíos llamados Francisco y Luis"
         m2_list = re.findall(
             r"(tíos|tios|tías|tias)\s+llamados?\s+([a-záéíóúñ]+)",
             txt,
@@ -1008,17 +1023,18 @@ no solo un chatbot genérico.
             self.memory.get_user_profile(uid)
             self.memory.get_facts(uid)
             self.memory.get_recent_dialog(uid)
-            print(f"[AuriMindV10.1] UID asignado: {uid}")
+            print(f"[AuriMindV10.2] UID asignado: {uid}")
         except Exception as e:
-            print(f"[AuriMindV10.1] Error asignando UID: {e}")
+            print(f"[AuriMindV10.2] Error asignando UID: {e}")
 
 
 # ----------------------------------------------------------
 # COMPATIBILIDAD LEGACY
 # ----------------------------------------------------------
-AuriMindV6 = AuriMindV10_1
-AuriMindV7 = AuriMindV10_1
-AuriMindV8 = AuriMindV10_1
-AuriMindV9 = AuriMindV10_1
-AuriMindV10 = AuriMindV10_1
-AuriMind = AuriMindV10_1
+AuriMindV6 = AuriMindV10_2
+AuriMindV7 = AuriMindV10_2
+AuriMindV8 = AuriMindV10_2
+AuriMindV9 = AuriMindV10_2
+AuriMindV10 = AuriMindV10_2
+AuriMindV10_1 = AuriMindV10_2
+AuriMind = AuriMindV10_2
