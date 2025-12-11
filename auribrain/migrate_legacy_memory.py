@@ -1,99 +1,70 @@
-# ============================================================
-# MIGRACIÓN DE MEMORIA LEGACY → FACTS ESTRUCTURADOS (V10.x)
-# ============================================================
+# auribrain/migrate_legacy_memory.py
 
-import re
-from auribrain.memory_db import dialog_recent, facts
-from auribrain.memory_orchestrator import MemoryOrchestrator
+"""
+Migrador de memoria legado → memoria estructurada.
+Versión segura y sin duplicados.
+"""
 
-# Patrones para detectar familia / mascotas / pareja
-FAMILY_PATTERNS = [
-    (r"(mi mamá|mi mama|mi madre)\s+(se llama\s+)?([A-Za-zÁÉÍÓÚáéíóúñ]+)", "madre"),
-    (r"(mi papá|mi papa|mi padre)\s+(se llama\s+)?([A-Za-zÁÉÍÓÚáéíóúñ]+)", "padre"),
-    (r"(mi hermana)\s+(se llama\s+)?([A-Za-zÁÉÍÓÚáéíóúñ]+)", "hermana"),
-    (r"(mi hermano)\s+(se llama\s+)?([A-Za-zÁÉÍÓÚáéíóúñ]+)", "hermano"),
-    (r"(mi abuela)\s+(se llama\s+)?([A-Za-zÁÉÍÓÚáéíóúñ]+)", "abuela"),
-    (r"(mi abuelo)\s+(se llama\s+)?([A-Za-zÁÉÍÓÚáéíóúñ]+)", "abuelo"),
-    (r"(mi tío|mi tio)\s+(se llama\s+)?([A-Za-zÁÉÍÓÚáéíóúñ]+)", "tio"),
-    (r"(mi tía|mi tia)\s+(se llama\s+)?([A-Za-zÁÉÍÓÚáéíóúñ]+)", "tia"),
-]
-
-PET_PATTERNS = [
-    (r"(mi perro|mi perrito|mi perra|mi perrita)\s+(se llama\s+)?([A-Za-zÁÉÍÓÚáéíóúñ]+)", "perro"),
-    (r"(mi gato|mi gatito|mi gata|mi gatita)\s+(se llama\s+)?([A-Za-zÁÉÍÓÚáéíóúñ]+)", "gato"),
-]
-
-RELATIONSHIP_PATTERNS = [
-    (r"(mi novia|mi pareja|mi exnovia)\s+(se llama\s+)?([A-Za-zÁÉÍÓÚáéíóúñ]+)", "pareja"),
-]
+from auribrain.memory_db import facts, users, dialog_recent
+import datetime
 
 
-def migrate_user(user_id: str):
+def run_memory_migration():
     """
-    Extrae datos de la memoria antigua del usuario y los guarda como facts estructurados.
+    Ejecuta la migración de cualquier memoria antigua (si existe)
+    a la estructura nueva de MemoryOrchestrator.
+
+    Si ya fue migrado previamente, no hace nada.
     """
-    mem = MemoryOrchestrator()
-    migrated = 0
 
-    # Leer TODO el diálogo histórico del usuario
-    cur = dialog_recent.find({"user_id": user_id})
-    messages = [m["text"] for m in cur if "text" in m]
+    result = {
+        "migrated_facts": 0,
+        "skipped": 0,
+        "status": "ok"
+    }
 
-    for text in messages:
-        t = text.lower()
+    # ------------
+    # EJEMPLO de memoria antigua a convertir
+    # Supongamos que antes tenías una colección 'legacy_memory'
+    # Si NO existe, simplemente devolvemos la estructura vacía.
+    # ------------
+    try:
+        from auribrain.memory_db import legacy_memory
+    except Exception:
+        result["status"] = "no_legacy_memory_collection"
+        return result
 
-        # ===============================
-        # FAMILIA
-        # ===============================
-        for pattern, role in FAMILY_PATTERNS:
-            m = re.search(pattern, t, re.IGNORECASE)
-            if m:
-                name = m.group(3).capitalize()
-                mem.add_fact_structured(user_id, {
-                    "text": f"Su {role} se llama {name}",
-                    "category": "relationship",
-                    "importance": 5,
-                    "confidence": 0.95,
-                    "name": name,
-                    "role": role,
-                    "type": "family_member",
-                })
-                migrated += 1
+    cursor = legacy_memory.find({})
+    for item in cursor:
+        text = item.get("text")
+        user_id = item.get("user_id")
 
-        # ===============================
-        # MASCOTAS
-        # ===============================
-        for pattern, kind in PET_PATTERNS:
-            m = re.search(pattern, t, re.IGNORECASE)
-            if m:
-                name = m.group(3).capitalize()
-                mem.add_fact_structured(user_id, {
-                    "text": f"Tiene un {kind} llamado {name}",
-                    "category": "pet",
-                    "importance": 4,
-                    "confidence": 0.95,
-                    "name": name,
-                    "kind": kind,
-                    "type": "pet",
-                })
-                migrated += 1
+        if not text or not user_id:
+            result["skipped"] += 1
+            continue
 
-        # ===============================
-        # PAREJA
-        # ===============================
-        for pattern, role in RELATIONSHIP_PATTERNS:
-            m = re.search(pattern, t, re.IGNORECASE)
-            if m:
-                name = m.group(3).capitalize()
-                mem.add_fact_structured(user_id, {
-                    "text": f"Su {role} se llama {name}",
-                    "category": "relationship",
-                    "importance": 5,
-                    "confidence": 0.95,
-                    "name": name,
-                    "role": role,
-                    "type": "relationship",
-                })
-                migrated += 1
+        # Evitar duplicados
+        exists = facts.find_one({
+            "user_id": user_id,
+            "text": text,
+            "is_active": True
+        })
 
-    return migrated
+        if exists:
+            result["skipped"] += 1
+            continue
+
+        facts.insert_one({
+            "user_id": user_id,
+            "text": text,
+            "category": "other",
+            "importance": 2,
+            "confidence": 0.7,
+            "created_at": datetime.datetime.utcnow(),
+            "updated_at": datetime.datetime.utcnow(),
+            "is_active": True
+        })
+
+        result["migrated_facts"] += 1
+
+    return result
