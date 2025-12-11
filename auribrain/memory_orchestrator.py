@@ -186,3 +186,25 @@ class MemoryOrchestrator:
 
     def update_user_profile(self, user_id: str, data: dict):
         users.update_one({"_id": user_id}, {"$set": data}, upsert=True)
+        # --------------------------------------------------------------
+    # RESUMEN FAMILIAR — usado por AuriMind._resolve_info
+    # --------------------------------------------------------------
+    def get_family_summary(self, user_id: str) -> str:
+        """
+        Devuelve un resumen corto de familiares importantes basados
+        en los facts estructurados ya almacenados.
+        """
+        family = self.get_family_facts(user_id)
+
+        if not family:
+            return ""
+
+        items = []
+        for f in family:
+            role = (f.get("role") or "").capitalize()
+            name = f.get("name")
+            if name and role:
+                items.append(f"{role}: {name}")
+
+        return ", ".join(items)
+
