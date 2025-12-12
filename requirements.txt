@@ -25,4 +25,10 @@ requests
 
 
 # ---emotions---
+
 numpy==1.26.4
+
+
+# --- Stripe API ---
+stripe==10.11.0
+
