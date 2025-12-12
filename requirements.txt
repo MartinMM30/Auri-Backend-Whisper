@@ -17,6 +17,8 @@ dnspython
 # --- Realtime / WebSocket protocols ---
 anyio
 starlette
+firebase-admin>=6.1.0
+
 
 # --- Audio / TTS streaming ---
 requests

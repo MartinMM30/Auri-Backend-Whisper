@@ -117,12 +117,23 @@ async def handle_json(ws: WebSocket, session: RealtimeSession, msg: dict):
         if uid:
             try:
                 auri.set_user_uid(uid)
+
+                # 🚀 NUEVO — sincronizar plan desde Firebase
+                try:
+                    auri.context.sync_plan_from_firebase()
+                    auri.context.mark_ready()
+                    logger.info(f"✅ Contexto sincronizado para UID={uid}")
+                except Exception as e:
+                    logger.error(f"⚠ Error sincronizando plan desde Firebase: {e}")
+
                 logger.info(f"🔗 Auri asociado al usuario {uid}")
+
             except Exception as e:
                 logger.error(f"⚠ Error asignando UID a AuriMind: {e}")
 
         await ws.send_json({"type": "hello_ok"})
         return
+
 
     # --------------------------
     # START SESSION
@@ -215,6 +226,12 @@ async def process_stt_tts(ws: WebSocket, session: RealtimeSession):
                 auri.set_user_uid(session.firebase_uid)
             except Exception as e:
                 logger.error(f"⚠ No se pudo asignar UID en STT: {e}")
+            # 🚀 NUEVO: re-sincronizar plan desde Firebase
+            try:
+                auri.context.sync_plan_from_firebase()
+            except Exception as e:
+                logger.error(f"⚠ No se pudo sincronizar plan en STT: {e}")
+
 
         # --------------------------
         # THINK + ACTIONS
@@ -258,6 +275,12 @@ async def process_text_only(ws: WebSocket, session: RealtimeSession, text: str):
                 auri.set_user_uid(session.firebase_uid)
             except Exception as e:
                 logger.error(f"⚠ No se pudo asignar UID en TEXT: {e}")
+                # 🚀 NUEVO: re-sincronizar plan desde Firebase
+            try:
+                auri.context.sync_plan_from_firebase()
+            except Exception as e:
+                logger.error(f"⚠ No se pudo sincronizar plan en TEXT: {e}")
+
 
         think_res = auri.think(text)
         reply_text = think_res.get("final") or think_res.get("raw") or ""

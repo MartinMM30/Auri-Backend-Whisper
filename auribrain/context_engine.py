@@ -3,6 +3,17 @@
 from datetime import datetime
 from typing import Any, Dict, List
 
+VALID_PLANS = {"free", "pro", "ultra"}
+
+# Imports opcionales de Firebase (no rompen si no están instalados)
+try:
+    import firebase_admin
+    from firebase_admin import auth, firestore
+except ImportError:
+    firebase_admin = None
+    auth = None
+    firestore = None
+
 
 class ContextEngine:
 
@@ -17,6 +28,7 @@ class ContextEngine:
             "birthday": None,
             "occupation": None,
             "firebase_uid": None,
+            "plan": "free",  # 🔥 PLAN agregado (por defecto FREE)
         }
 
         # WEATHER
@@ -51,8 +63,6 @@ class ContextEngine:
         # Ready flag
         self.ready_flag = False
 
-
-
     # ===========================================================
     # 🔐 UID desde WebSocket
     # ===========================================================
@@ -65,7 +75,85 @@ class ContextEngine:
     def get_user_uid(self):
         return self._active_uid
 
+    # ===========================================================
+    # PLAN — Sistema de Suscripciones
+    # ===========================================================
+    def set_user_plan(self, plan: str):
+        """ Establece el plan actual del usuario """
+        plan = (plan or "").lower().strip()
+        if plan not in VALID_PLANS:
+            plan = "free"
+        self.user["plan"] = plan
+        print(f"[ContextEngine] Plan establecido: {plan}")
 
+    def get_user_plan(self) -> str:
+        """ Devuelve el plan actual del usuario """
+        plan = self.user.get("plan", "free")
+        if plan not in VALID_PLANS:
+            return "free"
+        return plan
+
+    def update_user_plan(self, uid: str, new_plan: str):
+        """
+        Actualiza el plan del usuario.
+        Aquí en el futuro se integra con Firestore + Firebase Claims.
+        """
+        if uid and uid != self._active_uid:
+            print("[ContextEngine] Advertencia: intento de actualizar plan de UID no activo")
+
+        plan = (new_plan or "").lower().strip()
+        if plan not in VALID_PLANS:
+            plan = "free"
+
+        self.user["plan"] = plan
+        print(f"[ContextEngine] Plan actualizado en contexto para UID={uid}: {plan}")
+
+    def sync_plan_from_firebase(self):
+        """
+        Lee el plan desde Firebase Auth (custom claims) y/o Firestore
+        y actualiza self.user['plan'] + otros campos del usuario.
+        Se llama típicamente justo después de set_user_uid().
+        """
+        if not firebase_admin or not auth or not firestore:
+            print("[ContextEngine] Firebase Admin no inicializado; skip sync_plan_from_firebase")
+            return
+
+        uid = self._active_uid
+        if not uid:
+            print("[ContextEngine] No hay UID activo para sync_plan_from_firebase")
+            return
+
+        try:
+            # 1) Custom claims (rápido)
+            user_record = auth.get_user(uid)
+            claims = user_record.custom_claims or {}
+            plan = claims.get("plan")
+
+            # 2) Firestore (fuente de verdad más completa)
+            db = firestore.client()
+            doc_ref = db.collection("users").document(uid)
+            doc = doc_ref.get()
+            if doc.exists:
+                data = doc.to_dict() or {}
+                # Si Firestore tiene plan, priorizarlo
+                if data.get("plan"):
+                    plan = data["plan"]
+
+                # De paso sincronizar otros campos si están
+                for key in ("name", "city", "birthday", "occupation"):
+                    if key in data:
+                        self.user[key] = data[key]
+
+            if plan:
+                self.set_user_plan(plan)
+            else:
+                # si nada definió un plan, garantizamos free
+                self.set_user_plan("free")
+
+            print(f"[ContextEngine] Sync plan desde Firebase OK: {self.user['plan']}")
+
+        except Exception as e:
+            print(f"[ContextEngine] Error en sync_plan_from_firebase: {e}")
 
     # ===========================================================
     # SETTERS PARA SÍNCRO DE CONTEXTO
@@ -85,6 +173,10 @@ class ContextEngine:
         # No borrar UID si ya lo tenemos
         if "firebase_uid" in data and data["firebase_uid"]:
             self.user["firebase_uid"] = data["firebase_uid"]
+
+        # Si el backend envía plan en el paquete user, lo integramos
+        if "plan" in data:
+            self.set_user_plan(data["plan"])
 
     def set_events(self, events):
         self.events = events or []
@@ -117,8 +209,6 @@ class ContextEngine:
         if date:
             self.current_date_pretty = date
 
-
-
     # ===========================================================
     # READY CONTROL
     # ===========================================================
@@ -130,8 +220,6 @@ class ContextEngine:
 
     def invalidate(self):
         self.ready_flag = False
-
-
 
     # ===========================================================
     # CONTEXTO FINAL PARA AURIMIND
