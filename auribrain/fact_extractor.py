@@ -5,6 +5,12 @@ from openai import OpenAI
 
 
 def extract_facts(text: str):
+    text = text.strip()
+
+  # STT a veces corta frases → añade punto si falta
+    if not text.endswith("."):
+      text += "."
+
     """
     FactExtractor V7 — MULTI-MIEMBRO + CAMPOS ESTRUCTURADOS
     Compatible con OpenAI Responses API (sin response_format).

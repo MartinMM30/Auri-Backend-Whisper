@@ -38,6 +38,8 @@ class MemoryOrchestrator:
     # FACTOS DURADEROS (estructura completa)
     # ==================================================
     def add_fact_structured(self, user_id: str, fact: dict):
+        role = self.normalize_role(fact.get("role"))
+
         """
         Guarda un hecho estructurado con soporte para:
         - text
@@ -207,4 +209,31 @@ class MemoryOrchestrator:
                 items.append(f"{role}: {name}")
 
         return ", ".join(items)
+    def normalize_role(self, role: str):
+        if not role:
+            return role
+
+        r = role.lower().strip()
+        MAP = {
+            "madre": "mamá",
+            "mama": "mamá",
+            "mamá": "mamá",
+            "padre": "papá",
+            "papa": "papá",
+            "papá": "papá",
+            "hermano": "hermano",
+            "hermana": "hermana",
+            "tía": "tía",
+            "tia": "tía",
+            "tio": "tío",
+            "tío": "tío",
+            "abuelo": "abuelo",
+            "abuela": "abuela",
+            "pareja": "pareja",
+            "novia": "pareja",
+            "novio": "pareja",
+        }
+
+        return MAP.get(r, r)
+
 

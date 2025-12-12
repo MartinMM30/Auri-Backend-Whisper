@@ -2,13 +2,11 @@
 
 class CrisisEngine:
     """
-    CrisisEngine V3
-    - Evita falsos positivos
-    - Detecta crisis real (riesgo, desesperación severa)
-    - NO se activa por frases levemente negativas
+    CrisisEngine V3.5 — cero falsos positivos
+    - Ignora gustos, preferencias y frases neutrales
+    - Soft triggers SOLO si emoción = crítico + texto muy claro
     """
 
-    # Indicadores fuertes de crisis emocional real
     HARD_TRIGGERS = [
         "me quiero morir",
         "no quiero vivir",
@@ -18,8 +16,6 @@ class CrisisEngine:
         "no le veo sentido a nada",
         "quiero hacerme daño",
         "quiero hacerme dano",
-        "quiero hacerme daño",
-        "me odio",
         "me hago daño",
         "me estoy lastimando",
         "quiero desaparecer",
@@ -27,7 +23,7 @@ class CrisisEngine:
         "no aguanto mas",
     ]
 
-    # Indicadores moderados (solo activan si emoción = extremely_low)
+    # Soft triggers más estrictos
     SOFT_TRIGGERS = [
         "estoy destruido",
         "estoy devastado",
@@ -37,44 +33,49 @@ class CrisisEngine:
         "estoy al borde",
     ]
 
-    def detect(self, text: str, emotion_snapshot: dict) -> bool:
-        """
-        Detecta crisis real.
-        NO activa por tristeza leve o expresiones locales como "que mal".
-        """
+    # Frases que JAMÁS deben activar crisis
+    SAFE_CONTEXT = [
+        "mi color favorito",
+        "me encanta",
+        "odio levantarme temprano",
+        "amo",
+        "me gusta",
+        "estoy estudiando",
+        "mi comida favorita",
+        "mi perro",
+        "mi mamá",
+        "mi papá",
+        "mi hermano",
+        "mi tía",
+        "anime",
+        "juegos",
+        "películas",
+        "gustaría",
+        "quiero aprender",
+        "estoy cansado",
+        "ando mal",
+        "estoy triste",
+        "estoy bajoneado",
+    ]
 
+    def detect(self, text: str, emotion_snapshot: dict) -> bool:
         t = (text or "").lower().strip()
+
+        # 🔹 Si el texto pertenece a un contexto seguro, NO hay crisis.
+        if any(s in t for s in self.SAFE_CONTEXT):
+            return False
+
         overall = emotion_snapshot.get("overall", "neutral")
         energy = float(emotion_snapshot.get("energy", 0.5))
         stress = float(emotion_snapshot.get("stress", 0.2))
 
-        # 1. Hard triggers → activan siempre
+        # 1) Triggers duros
         if any(k in t for k in self.HARD_TRIGGERS):
             return True
 
-        # 2. Soft triggers → solo si emoción está muy baja o estrés alto
+        # 2) Soft triggers pero SOLO si emoción muy baja
         if any(k in t for k in self.SOFT_TRIGGERS):
-            if overall in ["depressed", "very_low", "despair"] or energy < 0.2 or stress > 0.8:
+            if overall in ["depressed", "very_low", "despair"] and (energy < 0.25 or stress > 0.75):
                 return True
 
-        # 3. Evitar falsos positivos por frases comunes
-        IGNORE = ["que mal", "pura vida", "que madre", "estoy cansado", "ando mal"]
-        if any(k in t for k in IGNORE):
-            return False
-
         return False
-
-    def respond(self, name: str = "amor") -> str:
-        """
-        Respuesta altamente empática, directa y segura.
-        Sin exagerar, sin sonar alarmista.
-        """
-
-        return (
-            f"{name}, estoy aquí con vos, de verdad. 💜\n"
-            "Lo que estás sintiendo importa muchísimo. No tenés que cargar esto solo.\n\n"
-            "Por favor hablá con alguien de confianza ahora mismo: tu familia, tu pareja, un amigo cercano.\n"
-            "Si sentís que estás en riesgo o no estás seguro de poder manejarlo, buscá ayuda profesional o "
-            "comunicate con emergencias.\n\n"
-            "Yo estoy acá para acompañarte mientras tanto. ¿Qué es lo que más te duele en este momento?"
-        )
