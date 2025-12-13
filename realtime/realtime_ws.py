@@ -4,6 +4,9 @@ import io
 import json
 import logging
 import wave
+import aiohttp
+import asyncio
+
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from openai import AsyncOpenAI
@@ -27,6 +30,18 @@ SAFE_ACTION_TYPES = {
     "open_reminders_list",
 }
 
+# ============================================================
+# RVC CONFIG
+# ============================================================
+
+RVC_URL = "http://127.0.0.1:8899/rvc"  # IP + puerto del servicio RVC
+
+RVC_VOICES = {
+    "auri_gf",
+    "myGF_voice",  # alias legacy
+}
+
+
 
 def pcm16_to_wav(pcm_bytes: bytes, sample_rate: int):
     buffer = io.BytesIO()
@@ -37,6 +52,9 @@ def pcm16_to_wav(pcm_bytes: bytes, sample_rate: int):
         wav.writeframes(pcm_bytes)
     buffer.seek(0)
     return buffer
+
+def is_rvc_voice(voice_id: str) -> bool:
+    return voice_id in RVC_VOICES
 
 
 # ============================================================
@@ -301,26 +319,62 @@ async def process_text_only(ws: WebSocket, session: RealtimeSession, text: str):
 
 
 # ============================================================
-# TTS STREAMING
+# TTS + RVC PIPELINE FINAL
 # ============================================================
 
 async def send_tts(ws: WebSocket, text: str, voice_id: str = "alloy"):
+    # Mensajes de texto (UI)
     await ws.send_json({"type": "reply_partial", "text": text[:60]})
     await ws.send_json({"type": "reply_final", "text": text})
 
     try:
+        # --------------------------------------------------
+        # 1️⃣ TTS BASE (siempre Alloy, WAV)
+        # --------------------------------------------------
+        audio_bytes = b""
+
         async with client.audio.speech.with_streaming_response.create(
             model=TTS_MODEL,
-            voice=voice_id,
+            voice="alloy",                 # SIEMPRE Alloy como base
             input=text,
-            response_format="mp3",
+            response_format="wav",         # RVC necesita WAV
         ) as resp:
             async for chunk in resp.iter_bytes():
-                await ws.send_bytes(chunk)
+                audio_bytes += chunk
 
+        # --------------------------------------------------
+        # 2️⃣ ¿PASA POR RVC?
+        # --------------------------------------------------
+        if is_rvc_voice(voice_id):
+            logger.info("🎙 Aplicando RVC para voice_id=%s", voice_id)
+
+            try:
+                async with aiohttp.ClientSession() as session:
+                    data = aiohttp.FormData()
+                    data.add_field(
+                        "file",
+                        audio_bytes,
+                        filename="input.wav",
+                        content_type="audio/wav",
+                    )
+
+                    async with session.post(RVC_URL, data=data, timeout=60) as r:
+                        if r.status == 200:
+                            audio_bytes = await r.read()
+                        else:
+                            logger.error("⚠ RVC falló (status=%s), usando Alloy", r.status)
+
+            except Exception as rvc_err:
+                logger.error("⚠ Error RVC, fallback Alloy: %s", rvc_err)
+
+        # --------------------------------------------------
+        # 3️⃣ Enviar audio final a Flutter
+        # --------------------------------------------------
+        await ws.send_bytes(audio_bytes)
         await ws.send_json({"type": "tts_end"})
 
     except Exception as e:
-        logger.exception("🔥 TTS error: %s", e)
+        logger.exception("🔥 TTS/RVC error: %s", e)
         await ws.send_json({"type": "tts_error", "error": str(e)})
         await ws.send_json({"type": "tts_end"})
+
