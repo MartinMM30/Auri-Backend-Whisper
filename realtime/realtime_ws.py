@@ -13,6 +13,7 @@ from openai import AsyncOpenAI
 
 from auribrain.auri_singleton import auri
 from realtime.realtime_broadcast import realtime_broadcast
+from auribrain.subscription.service import get_subscription
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -138,7 +139,8 @@ async def handle_json(ws: WebSocket, session: RealtimeSession, msg: dict):
 
                 # 🚀 NUEVO — sincronizar plan desde Firebase
                 try:
-                    auri.context.sync_plan_from_firebase()
+                    sub = get_subscription(session.firebase_uid)
+                    auri.context.set_user_plan(sub["plan"])
                     auri.context.mark_ready()
                     logger.info(f"✅ Contexto sincronizado para UID={uid}")
                 except Exception as e:
@@ -246,7 +248,8 @@ async def process_stt_tts(ws: WebSocket, session: RealtimeSession):
                 logger.error(f"⚠ No se pudo asignar UID en STT: {e}")
             # 🚀 NUEVO: re-sincronizar plan desde Firebase
             try:
-                auri.context.sync_plan_from_firebase()
+                sub = get_subscription(session.firebase_uid)
+                auri.context.set_user_plan(sub["plan"]) 
             except Exception as e:
                 logger.error(f"⚠ No se pudo sincronizar plan en STT: {e}")
 
@@ -295,7 +298,8 @@ async def process_text_only(ws: WebSocket, session: RealtimeSession, text: str):
                 logger.error(f"⚠ No se pudo asignar UID en TEXT: {e}")
                 # 🚀 NUEVO: re-sincronizar plan desde Firebase
             try:
-                auri.context.sync_plan_from_firebase()
+                sub = get_subscription(session.firebase_uid)
+                auri.context.set_user_plan(sub["plan"])
             except Exception as e:
                 logger.error(f"⚠ No se pudo sincronizar plan en TEXT: {e}")
 
