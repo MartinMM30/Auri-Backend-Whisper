@@ -6,6 +6,7 @@ import logging
 import wave
 import aiohttp
 import asyncio
+import time
 
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -14,6 +15,9 @@ from openai import AsyncOpenAI
 from auribrain.auri_singleton import auri
 from realtime.realtime_broadcast import realtime_broadcast
 from auribrain.subscription.service import get_subscription
+from typing import Optional
+
+
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -66,6 +70,13 @@ class RealtimeSession:
     def __init__(self):
         self.pcm_buffer = bytearray()
         self.firebase_uid = None  # usuario real de la sesión
+        self._last_plan_sync_ts = 0.0  # throttle
+    def should_sync_plan(self, cooldown_sec: float = 30.0) -> bool:
+        now = time.time()
+        if now - self._last_plan_sync_ts >= cooldown_sec:
+            self._last_plan_sync_ts = now
+            return True
+        return False
 
     def append_pcm(self, data: bytes):
         self.pcm_buffer.extend(data)
@@ -115,6 +126,33 @@ async def realtime_socket(ws: WebSocket):
     finally:
         realtime_broadcast.unregister(ws)
         logger.info("🔌 WS cerrado")
+        
+# ============================================================
+# PLAN SYNC (BACKEND SOURCE OF TRUTH)
+# ============================================================
+
+def _safe_plan_from_sub(sub: Optional[dict]) -> str:
+    try:
+        plan = (sub or {}).get("plan", "free")
+        return (plan or "free").strip().lower()
+    except Exception:
+        return "free"
+
+def _sync_plan_from_backend(uid: str) -> str:
+    """
+    Obtiene el plan desde el backend de suscripciones (get_subscription)
+    y lo inyecta en ContextEngine.
+    """
+    try:
+        sub = get_subscription(uid)  # puede ser in-memory o DB
+        plan = _safe_plan_from_sub(sub)
+        auri.context.set_user_plan(plan)
+        return plan
+    except Exception as e:
+        logger.error(f"⚠ Error sync plan desde backend (UID={uid}): {e}")
+        auri.context.set_user_plan("free")
+        return "free"
+
 
 
 # ============================================================
@@ -137,15 +175,11 @@ async def handle_json(ws: WebSocket, session: RealtimeSession, msg: dict):
             try:
                 auri.set_user_uid(uid)
 
-                # 🚀 NUEVO — sincronizar plan desde Firebase
-                try:
-                    sub = get_subscription(session.firebase_uid)
-                    auri.context.set_user_plan(sub["plan"])
-                    auri.context.mark_ready()
-                    logger.info(f"✅ Contexto sincronizado para UID={uid}")
-                except Exception as e:
-                    logger.error(f"⚠ Error sincronizando plan desde Firebase: {e}")
+                # ✅ Sync plan desde backend (source of truth)
+                plan = _sync_plan_from_backend(uid)
 
+                auri.context.mark_ready()
+                logger.info(f"✅ Contexto listo — plan={plan} UID={uid}")
                 logger.info(f"🔗 Auri asociado al usuario {uid}")
 
             except Exception as e:
@@ -153,6 +187,7 @@ async def handle_json(ws: WebSocket, session: RealtimeSession, msg: dict):
 
         await ws.send_json({"type": "hello_ok"})
         return
+
 
 
     # --------------------------
@@ -246,12 +281,15 @@ async def process_stt_tts(ws: WebSocket, session: RealtimeSession):
                 auri.set_user_uid(session.firebase_uid)
             except Exception as e:
                 logger.error(f"⚠ No se pudo asignar UID en STT: {e}")
-            # 🚀 NUEVO: re-sincronizar plan desde Firebase
+
+            # ✅ Re-sync plan solo ocasionalmente (evita overhead)
             try:
-                sub = get_subscription(session.firebase_uid)
-                auri.context.set_user_plan(sub["plan"]) 
+                if session.should_sync_plan(30.0):  # cada 30s
+                    plan = _sync_plan_from_backend(session.firebase_uid)
+                    logger.info(f"🔄 Plan re-sync (STT): {plan}")
             except Exception as e:
                 logger.error(f"⚠ No se pudo sincronizar plan en STT: {e}")
+
 
 
         # --------------------------
@@ -296,12 +334,14 @@ async def process_text_only(ws: WebSocket, session: RealtimeSession, text: str):
                 auri.set_user_uid(session.firebase_uid)
             except Exception as e:
                 logger.error(f"⚠ No se pudo asignar UID en TEXT: {e}")
-                # 🚀 NUEVO: re-sincronizar plan desde Firebase
+
             try:
-                sub = get_subscription(session.firebase_uid)
-                auri.context.set_user_plan(sub["plan"])
+                if session.should_sync_plan(30.0):
+                    plan = _sync_plan_from_backend(session.firebase_uid)
+                    logger.info(f"🔄 Plan re-sync (TEXT): {plan}")
             except Exception as e:
                 logger.error(f"⚠ No se pudo sincronizar plan en TEXT: {e}")
+
 
 
         think_res = auri.think(text)
